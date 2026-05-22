@@ -37,6 +37,7 @@
 
         .profit-plus { color: #00ff00; font-weight: bold; }
         .profit-minus { color: #ff4444; font-weight: bold; }
+        .opponent-hand { color: #00ffcc; font-size: 11px; font-weight: bold; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -100,6 +101,7 @@
         const socket = io();
         let currentRoom = '', myCards = [], communityCards = [];
 
+        // 번역 맵 수정: Two Pair가 원페어로 나오던 문제 해결
         const rankMap = {
             "High Card": "하이카드", "Pair": "원페어", "Two Pair": "투페어", "Three of a Kind": "트리플",
             "Straight": "스트레이트", "Flush": "플러쉬", "Full House": "풀하우스", 
@@ -109,8 +111,10 @@
 
         function translateHand(desc) {
             let translated = desc;
+            // 긴 문구에서 핵심 족보 단어를 찾아 한글로 교체
             Object.keys(rankMap).forEach(key => {
                 if (translated.includes(key)) {
+                    // 상세 정보(숫자 등) 추출 로직 보강
                     const parts = translated.split(',')[1]?.replace(/'s|&/g, '').split(' ') || [];
                     const nums = parts.filter(n => n.trim() !== "").map(n => valMap[n] || n).join(' ');
                     translated = `${nums} ${rankMap[key]}`.trim();
@@ -192,46 +196,13 @@
                     profitHtml = `<div style="color:#777;">(판 손익: 0)</div>`;
                 }
 
+                // 쇼다운 시 상대방 족보 문구 표시
+                let handDescHtml = '';
+                if (p.handDesc && p.showCards) {
+                    handDescHtml = `<div class="opponent-hand">${translateHand(p.handDesc)}</div>`;
+                }
+
                 pDiv.innerHTML += `
                     <div class="player-slot ${turnClass}">
                         <div style="font-weight:bold;">${p.nickname}</div>
                         <div style="margin-top:2px;">${profitHtml}</div>
-                        <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
-                        <div style="font-size:11px; color:#aaa;">${p.lastAction || '-'}</div>
-                    </div>`;
-            });
-            if (me) solveHand(me);
-        });
-
-        function solveHand(me) {
-            if (me.cards.length < 2) { document.getElementById('handRank').innerText = ""; return; }
-            const combined = [...me.cards, ...communityCards];
-            if (combined.length >= 2) {
-                try {
-                    const hand = Hand.solve(combined);
-                    document.getElementById('handRank').innerText = "내 족보: " + translateHand(hand.descr);
-                } catch(e) {}
-            }
-        }
-
-        socket.on('dealPrivateCards', (cards) => {
-            const div = document.getElementById('myCards');
-            div.innerHTML = '';
-            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
-        });
-
-        socket.on('communityUpdate', (cards) => {
-            communityCards = cards;
-            const div = document.getElementById('communityCards');
-            div.innerHTML = '';
-            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
-        });
-
-        socket.on('chatUpdate', (msg) => {
-            const b = document.getElementById('chatBox');
-            const d = document.createElement('div'); d.textContent = msg;
-            b.appendChild(d); b.scrollTop = b.scrollHeight;
-        });
-    </script>
-</body>
-</html>

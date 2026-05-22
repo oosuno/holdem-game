@@ -37,7 +37,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         room.players.push({
             id: socket.id, nickname, chips: 10000, roundBet: 0, totalBet: 0,
-            cards: [], folded: false, lastAction: '', isReady: false, showCards: false, profit: 0
+            cards: [], folded: false, lastAction: '', isReady: false, showCards: false, profit: 0, handDesc: ''
         });
         io.to(roomCode).emit('roomUpdate', room);
     });
@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
         
         room.players.forEach(p => {
             p.roundBet = 0; p.totalBet = 0; p.profit = 0;
-            p.folded = false; p.lastAction = ''; p.showCards = false;
+            p.folded = false; p.lastAction = ''; p.showCards = false; p.handDesc = '';
             p.cards = [room.deck.pop(), room.deck.pop()];
             io.to(p.id).emit('dealPrivateCards', p.cards);
         });
@@ -120,15 +120,14 @@ io.on('connection', (socket) => {
             } else {
                 room.gameState = 'showdown';
                 room.statusMsg = '쇼다운이 진행됩니다.';
-                // 첫 번째 플레이어 찾기
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
                 
-                // 첫 번째 사람은 무조건 자동 오픈
                 const firstPlayer = room.players[room.showdownTurn];
                 firstPlayer.showCards = true;
                 firstPlayer.lastAction = 'SHOW';
+                const hand = Solver.solve([...firstPlayer.cards, ...room.communityCards]);
+                firstPlayer.handDesc = hand.descr; 
                 
-                // 다음 사람 판단 로직 실행
                 checkNextShowdown(room, roomCode);
             }
         } else {
@@ -141,7 +140,6 @@ io.on('connection', (socket) => {
 
     function checkNextShowdown(room, roomCode) {
         let foundNext = false;
-        // 현재 오픈된 카드들 중 최고 족보 랭크 확인
         const shownPlayers = room.players.filter(p => p.showCards);
         let bestRank = 0;
         shownPlayers.forEach(p => {
@@ -157,14 +155,13 @@ io.on('connection', (socket) => {
                 room.showdownTurn = idx;
                 const myHand = Solver.solve([...p.cards, ...room.communityCards]);
                 
-                // 내가 이겼으면 자동 오픈하고 그 다음 사람 체크 (재귀)
                 if (myHand.rank > bestRank) {
                     p.showCards = true;
                     p.lastAction = 'SHOW';
+                    p.handDesc = myHand.descr; 
                     checkNextShowdown(room, roomCode);
                     return;
                 }
-                // 내가 졌으면 멈추고 유저에게 MUCK 선택지 노출 (foundNext = true)
                 foundNext = true;
                 break;
             }
@@ -178,8 +175,14 @@ io.on('connection', (socket) => {
         const player = room.players[room.showdownTurn];
         if (!player || player.id !== socket.id) return;
 
-        if (action === 'show') player.showCards = true;
         player.lastAction = action.toUpperCase();
+        if (action === 'show') {
+            player.showCards = true;
+            const hand = Solver.solve([...player.cards, ...room.communityCards]);
+            player.handDesc = hand.descr;
+        } else {
+            player.handDesc = ''; 
+        }
 
         checkNextShowdown(room, roomCode);
         io.to(roomCode).emit('roomUpdate', room);
@@ -195,7 +198,6 @@ io.on('connection', (socket) => {
             p.chips += prize;
         });
 
-        // 손익 계산
         room.players.forEach(p => {
             const isWinner = winners.some(w => w.id === p.id);
             p.profit = isWinner ? (prize - p.totalBet) : -p.totalBet;
