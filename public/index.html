@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>홀덤 클럽 - 그래픽스 업그레이드</title>
+    <title>홀덤 클럽</title>
     <style>
         body { background: #073a11; color: white; font-family: 'Malgun Gothic', sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
@@ -11,7 +11,6 @@
         
         #gameStatusMsg { background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; color: #ffcc00; font-weight: bold; margin-bottom: 10px; border: 1px solid #ffcc00; }
 
-        /* POT 문구 영역 수정 */
         .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
         .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
         .pot-amount { font-size: 32px; color: #ffcc00; font-weight: bold; }
@@ -71,8 +70,8 @@
                 </div>
             </div>
             <div id="showdownControl" style="display:none;">
-                <h3 style="margin:0 0 10px 0;">쇼다운: 패를 공개하시겠습니까?</h3>
-                <div class="btn-group">
+                <h3 id="showdownMsg" style="margin:0 0 10px 0;">쇼다운 진행 중...</h3>
+                <div class="btn-group" id="showdownBtns">
                     <button class="show" onclick="sendShowdown('show')">오픈 (SHOW)</button>
                     <button class="muck" onclick="sendShowdown('muck')">숨기기 (MUCK)</button>
                 </div>
@@ -154,13 +153,20 @@
             const me = room.players.find(p => p.id === socket.id);
 
             document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
-            document.getElementById('showdownControl').style.display = room.gameState === 'showdown' ? 'block' : 'none';
+            
+            if (room.gameState === 'showdown') {
+                document.getElementById('showdownControl').style.display = 'block';
+                const isMyTurn = room.players[room.showdownTurn]?.id === socket.id;
+                document.getElementById('showdownBtns').style.display = isMyTurn ? 'flex' : 'none';
+                document.getElementById('showdownMsg').innerText = isMyTurn ? "패배했습니다. 패를 공개하시겠습니까?" : `${room.players[room.showdownTurn].nickname}님의 오픈 순서입니다.`;
+            } else {
+                document.getElementById('showdownControl').style.display = 'none';
+            }
 
             if (me) {
                 const btn = document.getElementById('readyBtn');
                 btn.innerText = me.isReady ? "준비완료 (취소)" : "게임 준비";
                 btn.style.background = me.isReady ? "#28a745" : "#ffcc00";
-
                 const diff = room.currentMaxBet - me.roundBet;
                 document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
                 document.getElementById('checkBtn').className = (diff > 0) ? 'disabled' : 'check';
@@ -168,7 +174,8 @@
             }
 
             room.players.forEach((p, idx) => {
-                const turn = room.currentTurn === idx && room.gameState === 'playing' ? 'active-turn' : '';
+                const isTurn = (room.gameState === 'playing' && room.currentTurn === idx) || (room.gameState === 'showdown' && room.showdownTurn === idx);
+                const turnClass = isTurn ? 'active-turn' : '';
                 let cardsHtml = '';
                 if (p.showCards && p.cards.length > 0) {
                     p.cards.forEach(c => cardsHtml += `<img src="${getCardImg(c)}" class="mini-card">`);
@@ -186,7 +193,7 @@
                 }
 
                 pDiv.innerHTML += `
-                    <div class="player-slot ${turn}">
+                    <div class="player-slot ${turnClass}">
                         <div style="font-weight:bold;">${p.nickname}</div>
                         <div style="margin-top:2px;">${profitHtml}</div>
                         <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
@@ -225,7 +232,6 @@
             const d = document.createElement('div'); d.textContent = msg;
             b.appendChild(d); b.scrollTop = b.scrollHeight;
         });
-        socket.on('alert', (msg) => { console.log("Game Alert:", msg); });
     </script>
 </body>
 </html>
