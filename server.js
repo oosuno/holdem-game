@@ -36,6 +36,7 @@ io.on('connection', (socket) => {
                 deck: [],
                 communityCards: [],
                 pot: 0,
+                currentMaxBet: 0, // 현재 라운드의 최고 베팅액
                 currentTurn: 0,
                 gameState: 'waiting'
             };
@@ -45,7 +46,7 @@ io.on('connection', (socket) => {
             id: socket.id,
             nickname: nickname,
             chips: 10000,
-            bet: 0,
+            roundBet: 0, // 이번 라운드에 내가 낸 돈
             cards: [],
             folded: false
         });
@@ -59,34 +60,45 @@ io.on('connection', (socket) => {
         room.deck = createDeck();
         room.communityCards = [];
         room.pot = 0;
+        room.currentMaxBet = 0;
         room.currentTurn = 0;
         
         room.players.forEach(p => {
             p.cards = [room.deck.pop(), room.deck.pop()];
-            p.bet = 0;
+            p.roundBet = 0;
             p.folded = false;
             io.to(p.id).emit('dealPrivateCards', p.cards);
         });
         io.to(roomCode).emit('gameStarted', room);
     });
 
-    // 베팅 처리 (Call, Raise, Fold)
     socket.on('action', ({ roomCode, type, amount }) => {
         const room = rooms[roomCode];
         const player = room.players[room.currentTurn];
-        if (player.id !== socket.id) return; // 자기 차례가 아니면 무시
+        if (player.id !== socket.id) return;
 
-        if (type === 'call') {
-            player.chips -= 1000;
-            room.pot += 1000;
+        if (type === 'check') {
+            // 앞사람이 베팅을 해서 currentMaxBet이 내 roundBet보다 높으면 체크 불가
+            if (room.currentMaxBet > player.roundBet) {
+                return socket.emit('alert', '베팅이 들어와서 체크할 수 없습니다! 콜이나 레이즈를 하세요.');
+            }
+        } else if (type === 'call') {
+            const callAmount = room.currentMaxBet - player.roundBet;
+            player.chips -= callAmount;
+            player.roundBet += callAmount;
+            room.pot += callAmount;
+        } else if (type === 'raise') {
+            const totalRaise = room.currentMaxBet + amount; // 현재 최고가 + 추가베팅액
+            const payAmount = totalRaise - player.roundBet;
+            player.chips -= payAmount;
+            player.roundBet = totalRaise;
+            room.pot += payAmount;
+            room.currentMaxBet = totalRaise; // 최고 베팅액 갱신
         } else if (type === 'fold') {
             player.folded = true;
-        } else if (type === 'raise') {
-            player.chips -= amount;
-            room.pot += amount;
         }
 
-        // 다음 살아있는 플레이어에게 차례 넘기기
+        // 다음 차례 계산
         do {
             room.currentTurn = (room.currentTurn + 1) % room.players.length;
         } while (room.players[room.currentTurn].folded);
@@ -96,10 +108,15 @@ io.on('connection', (socket) => {
 
     socket.on('dealCommunity', (roomCode) => {
         const room = rooms[roomCode];
+        // 새로운 카드가 깔리면 베팅 금액 초기화
+        room.currentMaxBet = 0;
+        room.players.forEach(p => p.roundBet = 0);
+
         if (room.communityCards.length < 5) {
             const count = room.communityCards.length === 0 ? 3 : 1;
             for(let i=0; i<count; i++) room.communityCards.push(room.deck.pop());
             io.to(roomCode).emit('communityUpdate', room.communityCards);
+            io.to(roomCode).emit('roomUpdate', room); // 베팅 초기화 상태 알림
         }
     });
 });
