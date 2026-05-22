@@ -19,7 +19,7 @@
         .card-img { width: 65px; height: 90px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); transition: transform 0.3s; }
         .hand-rank { color: #00ffcc; font-size: 20px; font-weight: bold; margin-bottom: 10px; }
         
-        .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; }
+        .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; min-height: 120px; }
         .input-bet { width: 60%; padding: 10px; border-radius: 5px; border: none; font-size: 16px; margin-right: 5px; }
         .btn-group { display: flex; justify-content: center; gap: 5px; margin-top: 10px; }
         .btn-group button { flex: 1; padding: 12px 0; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; }
@@ -61,7 +61,7 @@
         <div id="myCards" class="card-container"></div>
 
         <div class="bet-panel">
-            <div id="betControl">
+            <div id="betControl" style="display:none;">
                 <input type="number" id="raiseAmount" class="input-bet" placeholder="레이즈 금액 입력">
                 <div class="btn-group">
                     <button id="checkBtn" onclick="sendAction('check')">체크</button>
@@ -167,13 +167,12 @@
             if (lastGameState === 'playing' && room.gameState === 'showdown') {
                 speak("Showdown", "en-US");
             }
-            // 게임이 강제 초기화되었을 때 처리
             if (lastGameState !== 'waiting' && room.gameState === 'waiting' && room.statusMsg.includes("이탈")) {
                 myCards = []; communityCards = [];
                 document.getElementById('myCards').innerHTML = '';
                 document.getElementById('communityCards').innerHTML = '';
                 document.getElementById('handRank').innerText = '';
-                speak("플레이어가 나가서 게임이 중단되었습니다.");
+                speak("중단되었습니다.");
             }
 
             document.getElementById('gameStatusMsg').innerText = room.statusMsg;
@@ -182,13 +181,15 @@
             pDiv.innerHTML = '';
             const me = room.players.find(p => p.id === socket.id);
 
-            document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
+            // 중요: 내 차례일 때만 액션창 노출
+            const isMyTurn = room.gameState === 'playing' && room.players[room.currentTurn]?.id === socket.id;
+            document.getElementById('betControl').style.display = isMyTurn ? 'block' : 'none';
             
             if (room.gameState === 'showdown') {
                 document.getElementById('showdownControl').style.display = 'block';
-                const isMyTurn = room.players[room.showdownTurn]?.id === socket.id;
-                document.getElementById('showdownBtns').style.display = isMyTurn ? 'flex' : 'none';
-                document.getElementById('showdownMsg').innerText = isMyTurn ? "졌습니다. 오픈하시겠습니까?" : `${room.players[room.showdownTurn]?.nickname}님의 오픈 순서입니다.`;
+                const isMyShowdown = room.players[room.showdownTurn]?.id === socket.id;
+                document.getElementById('showdownBtns').style.display = isMyShowdown ? 'flex' : 'none';
+                document.getElementById('showdownMsg').innerText = isMyShowdown ? "졌습니다. 오픈하시겠습니까?" : `${room.players[room.showdownTurn]?.nickname}님의 오픈 순서입니다.`;
             } else {
                 document.getElementById('showdownControl').style.display = 'none';
             }

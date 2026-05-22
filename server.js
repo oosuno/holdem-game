@@ -37,7 +37,6 @@ io.on('connection', (socket) => {
         }
         const room = rooms[roomCode];
         
-        // 중간에 들어온 플레이어 처리: 게임 중이면 folded 상태로 추가
         const isGameInProgress = (room.gameState === 'playing' || room.gameState === 'showdown');
         
         room.players.push({
@@ -240,8 +239,8 @@ io.on('connection', (socket) => {
     }
 
     socket.on('sendMessage', ({ roomCode, msg }) => {
-        const room = rooms[roomCode];
-        const player = room.players?.find(p => p.id === socket.id);
+        const room = rooms[code]; // 기존 코드 수정
+        const player = room?.players?.find(p => p.id === socket.id);
         if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
     });
 
@@ -252,8 +251,6 @@ io.on('connection', (socket) => {
             if (idx !== -1) {
                 const leaver = room.players[idx];
                 room.players.splice(idx, 1);
-                
-                // 플레이어가 나갔을 때 게임 진행 중이면 강제 종료 및 초기화
                 if (room.gameState === 'playing' || room.gameState === 'showdown') {
                     endGame(code, `플레이어(${leaver.nickname}) 이탈로 인해 게임이 초기화되었습니다.`);
                 } else if (room.players.length === 0) {
