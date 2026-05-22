@@ -24,19 +24,51 @@ function createDeck() {
     return deck;
 }
 
+// [추가/수정] 족보 이름을 한국어로 변환하고 J 10 투페어 등을 정확히 표시하기 위한 함수
+function getHandNameKr(solved) {
+    const nameMap = {
+        "Royal Flush": "로열 플러쉬",
+        "Straight Flush": "스트레이트 플러쉬",
+        "Four of a Kind": "포카드",
+        "Full House": "풀하우스",
+        "Flush": "플러쉬",
+        "Straight": "스트레이트",
+        "Three of a Kind": "트리플",
+        "Two Pair": "투페어",
+        "Pair": "원페어",
+        "High Card": "하이카드"
+    };
+    
+    let name = nameMap[solved.name] || solved.name;
+    
+    // [수정] 투페어일 경우 구성 카드 값을 포함하여 "J 10 투페어" 형식으로 생성
+    if (solved.name === "Two Pair") {
+        const p1 = solved.values[0].replace('T','10');
+        const p2 = solved.values[1].replace('T','10');
+        return `${p1} ${p2} 투페어`;
+    } else if (solved.name === "Pair") {
+        const p = solved.values[0].replace('T','10');
+        return `${p} 원페어`;
+    }
+    
+    return name;
+}
+
 io.on('connection', (socket) => {
     socket.on('joinRoom', ({ roomCode, nickname }) => {
         socket.join(roomCode);
         if (!rooms[roomCode]) {
             rooms[roomCode] = {
                 players: [], deck: [], communityCards: [], pot: 0,
-                currentMaxBet: 0, currentTurn: 0, gameState: 'waiting', actionCount: 0
+                currentMaxBet: 0, currentTurn: 0, gameState: 'waiting', actionCount: 0,
+                lastAggressorId: null // [추가] 마지막 공격자 추적
             };
         }
         const room = rooms[roomCode];
         room.players.push({
             id: socket.id, nickname, chips: 10000, roundBet: 0,
-            cards: [], folded: false, lastAction: '', isReady: false, showCards: false
+            cards: [], folded: false, lastAction: '', isReady: false, showCards: false,
+            handName: '', isWinner: false // [추가] 족보 및 승리여부 저장
         });
         io.to(roomCode).emit('roomUpdate', room);
     });
@@ -65,12 +97,15 @@ io.on('connection', (socket) => {
         room.currentMaxBet = 0;
         room.currentTurn = 0;
         room.actionCount = 0;
+        room.lastAggressorId = null;
         
         room.players.forEach(p => {
             p.roundBet = 0;
             p.folded = false;
             p.lastAction = '';
             p.showCards = false;
+            p.handName = '';
+            p.isWinner = false;
             p.cards = [room.deck.pop(), room.deck.pop()];
             io.to(p.id).emit('dealPrivateCards', p.cards);
         });
@@ -91,10 +126,11 @@ io.on('connection', (socket) => {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; room.pot += diff;
         } else if (type === 'raise') {
-            const total = amount; // 직접 입력받은 총 금액
+            const total = amount; 
             const pay = total - player.roundBet;
             player.chips -= pay; player.roundBet = total; room.pot += pay;
             room.currentMaxBet = total;
+            room.lastAggressorId = player.id; // [추가] 마지막 레이저 기록
         } else if (type === 'fold') {
             player.folded = true;
         }
@@ -113,7 +149,15 @@ io.on('connection', (socket) => {
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
-                // 쇼다운 모드 진입
+                // [수정] 쇼다운 진입 전 승자 및 족보 미리 계산
+                const winners = solveWinners(active, room.communityCards);
+                room.players.forEach(p => {
+                    if (!p.folded) {
+                        const solved = Solver.solve([...p.cards, ...room.communityCards]);
+                        p.handName = getHandNameKr(solved);
+                        p.isWinner = winners.some(w => w.id === p.id);
+                    }
+                });
                 room.gameState = 'showdown';
                 io.to(roomCode).emit('roomUpdate', room);
             }
@@ -134,16 +178,12 @@ io.on('connection', (socket) => {
         player.lastAction = action.toUpperCase();
 
         const active = room.players.filter(p => !p.folded);
-        const showdownFinished = active.every(p => p.lastAction === 'SHOW' || p.lastAction === 'MUCK');
+        const showdownFinished = active.every(p => p.lastAction === 'SHOW' || p.lastAction === 'MUCK' || p.id === room.lastAggressorId || p.isWinner);
 
         if (showdownFinished) {
-            // 승자 계산 로직
-            const winners = solveWinners(active, room.communityCards);
+            const winners = room.players.filter(p => p.isWinner);
             const prize = Math.floor(room.pot / winners.length);
-            winners.forEach(w => {
-                const p = room.players.find(pl => pl.id === w.id);
-                p.chips += prize;
-            });
+            winners.forEach(w => { w.chips += prize; });
             endGame(roomCode, `결과: ${winners.map(w => w.nickname).join(', ')} 승리!`);
         } else {
             io.to(roomCode).emit('roomUpdate', room);
@@ -151,19 +191,14 @@ io.on('connection', (socket) => {
     });
 
     function solveWinners(players, community) {
-        let bestScore = -1;
-        let winners = [];
-        players.forEach(p => {
-            const hand = Solver.solve([...p.cards, ...community]);
-            p.solvedHand = hand;
-            if (hand.rank > bestScore) {
-                bestScore = hand.rank;
-                winners = [p];
-            } else if (hand.rank === bestScore) {
-                winners.push(p);
-            }
+        const hands = players.map(p => {
+            const h = Solver.solve([...p.cards, ...community]);
+            h.id = p.id;
+            h.nickname = p.nickname;
+            return h;
         });
-        return winners;
+        const winnerHands = Solver.winners(hands);
+        return winnerHands.map(h => ({ id: h.id, nickname: h.nickname }));
     }
 
     function endGame(roomCode, msg) {
