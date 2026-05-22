@@ -89,10 +89,10 @@ io.on('connection', (socket) => {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; room.pot += diff;
         } else if (type === 'raise') {
-            const total = amount;
-            const pay = total - player.roundBet;
-            player.chips -= pay; player.roundBet = total; room.pot += pay;
-            room.currentMaxBet = total;
+            const diff = room.currentMaxBet - player.roundBet;
+            const totalRaise = diff + amount; // 콜 금액 + 입력한 추가 금액
+            player.chips -= totalRaise; player.roundBet += totalRaise; room.pot += totalRaise;
+            room.currentMaxBet = player.roundBet;
         } else if (type === 'fold') {
             player.folded = true;
         }
@@ -111,14 +111,10 @@ io.on('connection', (socket) => {
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
-                // 리버 베팅 종료 -> 쇼다운 처리
-                const winners = solveWinners(active, room.communityCards);
-                room.winnersIds = winners.map(w => w.id);
-                // 이긴 사람은 자동으로 카드 오픈 상태로 변경
-                room.players.forEach(p => {
-                    if (room.winnersIds.includes(p.id)) p.showCards = true;
-                });
+                // 리버 종료 -> 쇼다운 모드
                 room.gameState = 'showdown';
+                // 오픈 순서 초기화 (첫 번째 생존자부터)
+                room.showdownTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('roomUpdate', room);
             }
         } else {
@@ -131,19 +127,27 @@ io.on('connection', (socket) => {
 
     socket.on('showdownAction', ({ roomCode, action }) => {
         const room = rooms[roomCode];
-        const player = room.players.find(p => p.id === socket.id);
-        if (!room || room.gameState !== 'showdown' || !player) return;
+        if (!room || room.gameState !== 'showdown') return;
+        const player = room.players[room.showdownTurn];
+        if (!player || player.id !== socket.id) return;
 
         if (action === 'show') player.showCards = true;
         player.lastAction = action.toUpperCase();
 
-        const active = room.players.filter(p => !p.folded);
-        // 승자를 제외한 나머지 사람들이 쇼다운 액션을 마쳤는지 확인
-        const showdownFinished = active.every(p => 
-            room.winnersIds.includes(p.id) || p.lastAction === 'SHOW' || p.lastAction === 'MUCK'
-        );
+        // 다음 오픈할 사람 찾기
+        let nextIdx = (room.showdownTurn + 1) % room.players.length;
+        let found = false;
+        for (let i = 0; i < room.players.length; i++) {
+            let idx = (room.showdownTurn + 1 + i) % room.players.length;
+            if (!room.players[idx].folded && room.players[idx].lastAction !== 'SHOW' && room.players[idx].lastAction !== 'MUCK') {
+                room.showdownTurn = idx;
+                found = true;
+                break;
+            }
+        }
 
-        if (showdownFinished) {
+        if (!found) {
+            const active = room.players.filter(p => !p.folded);
             const winners = solveWinners(active, room.communityCards);
             const prize = Math.floor(room.pot / winners.length);
             winners.forEach(w => {
