@@ -1,54 +1,94 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>홀덤 그래픽스</title>
+    <title>홀덤 클럽 - 프로페셔널</title>
     <style>
-        body { background: #073a11; color: white; font-family: sans-serif; text-align: center; margin: 0; }
-        #game { padding: 10px; }
-        .card-img { width: 60px; height: 85px; margin: 3px; border-radius: 4px; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); vertical-align: middle; }
-        .pot-area { font-size: 26px; color: #ffcc00; margin: 15px 0; font-weight: bold; }
-        .player-slot { background: rgba(0,0,0,0.4); margin: 5px auto; width: 90%; max-width: 400px; padding: 10px; border-radius: 10px; border: 1px solid #ffffff33; }
-        .active-turn { border: 2px solid yellow; background: rgba(255,255,0,0.1); }
-        .btn-group button { width: 22%; padding: 10px 0; margin: 1%; font-weight: bold; border-radius: 5px; border: none; cursor: pointer; }
-        .disabled { opacity: 0.4; filter: grayscale(1); pointer-events: none; }
-        .main-controls { display: flex; justify-content: center; gap: 10px; margin: 20px 0; }
-        .main-controls button { padding: 15px 30px; font-size: 16px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; }
-        #chatBox { height: 100px; overflow-y: auto; background: rgba(0,0,0,0.5); text-align: left; padding: 10px; font-size: 13px; border-top: 1px solid #444; }
+        body { background: #073a11; color: white; font-family: 'Apple SD Gothic Neo', sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
+        #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; }
+        
+        /* 카드 스타일 */
+        .card-container { display: flex; justify-content: center; gap: 5px; margin: 10px 0; min-height: 90px; }
+        .card-img { width: 60px; height: 85px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); background: white; }
+        
+        /* 레이아웃 */
+        .pot-area { font-size: 28px; color: #ffcc00; font-weight: bold; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); margin: 10px 0; }
+        .hand-rank { color: #00ffcc; font-size: 18px; font-weight: bold; margin-bottom: 10px; height: 22px; }
+        
+        /* 버튼 스타일 */
+        .btn-group { display: flex; justify-content: center; gap: 5px; margin: 15px 0; }
+        .btn-group button { flex: 1; max-width: 100px; padding: 12px 0; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; font-size: 14px; transition: 0.2s; }
+        .check { background: #555; }
+        .call { background: #007bff; }
+        .raise { background: #28a745; }
+        .fold { background: #dc3545; }
+        
+        .disabled { opacity: 0.3; filter: grayscale(1); pointer-events: none; position: relative; }
+        .disabled::after { content: '❌'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 20px; z-index: 10; }
+        
+        .main-controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; }
+        .main-controls button { padding: 12px 24px; font-size: 15px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; }
+        #readyBtn { background: #ffcc00; color: #000; min-width: 160px; }
+        #leaveBtn { background: #444; color: #fff; }
+        
+        /* 플레이어 리스트 */
+        #players { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 15px; }
+        .player-slot { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); position: relative; }
+        .active-turn { border: 2px solid #ffcc00; box-shadow: 0 0 10px rgba(255,204,0,0.4); background: rgba(255,204,0,0.1); }
+        
+        /* 채팅 */
+        .chat-area { height: 140px; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; border-top: 2px solid #05260b; }
+        #chatBox { flex: 1; overflow-y: auto; padding: 8px; font-size: 13px; text-align: left; }
+        .chat-input-group { display: flex; background: #222; }
+        .chat-input-group input { flex: 1; padding: 10px; border: none; background: transparent; color: white; outline: none; }
+        .chat-input-group button { padding: 0 15px; background: #444; color: white; border: none; cursor: pointer; }
+
+        input[type="text"] { padding: 12px; border-radius: 6px; border: none; margin: 5px; width: 220px; font-size: 16px; }
+        h4 { margin: 5px 0; color: #aaa; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
     </style>
 </head>
 <body>
-    <div id="lobby" style="padding-top: 100px;">
-        <h1>♠️ HOLDEM CLUB ♣️</h1>
-        <input type="text" id="nick" placeholder="닉네임" style="padding:10px;">
-        <input type="text" id="room" placeholder="방코드" style="padding:10px;">
-        <button onclick="join()" style="padding:10px 20px; background: red; color: white; border: none;">참가</button>
+    <div id="lobby">
+        <h1 style="color: #ffcc00; margin-bottom: 30px;">♠️ HOLDEM CLUB ♣️</h1>
+        <input type="text" id="nick" placeholder="닉네임 입력">
+        <input type="text" id="room" placeholder="방 코드 (예: 1234)">
+        <button onclick="join()" style="margin-top: 20px; padding: 15px 50px; background: #e50914; color: white; border: none; border-radius: 30px; font-weight: bold; font-size: 18px; cursor: pointer;">입장하기</button>
     </div>
 
     <div id="game" style="display:none;">
         <div class="pot-area">💰 POT: <span id="potAmount">0</span></div>
-        <div id="communityCards"></div>
-        <div id="handRank" style="color: #00ffcc; font-weight: bold; margin: 10px 0;"></div>
-        <div id="myCards"></div>
+        
+        <h4>COMMUNITY CARDS</h4>
+        <div id="communityCards" class="card-container"></div>
+        
+        <div id="handRank" class="hand-rank"></div>
+        
+        <h4>MY CARDS</h4>
+        <div id="myCards" class="card-container"></div>
 
         <div class="btn-group">
-            <button id="checkBtn" class="check" onclick="sendAction('check')" style="background:#888;">체크</button>
-            <button id="callBtn" class="call" onclick="sendAction('call')" style="background:#007bff; color:white;">콜 <span id="callVal"></span></button>
-            <button id="raiseBtn" class="raise" onclick="sendAction('raise', 1000)" style="background:#28a745; color:white;">+1000</button>
-            <button id="foldBtn" class="fold" onclick="sendAction('fold')" style="background:#dc3545; color:white;">폴드</button>
+            <button id="checkBtn" class="check" onclick="sendAction('check')">체크</button>
+            <button id="callBtn" class="call" onclick="sendAction('call')">콜 <span id="callVal"></span></button>
+            <button id="raiseBtn" class="raise" onclick="sendAction('raise', 1000)">+1000</button>
+            <button id="foldBtn" class="fold" onclick="sendAction('fold')">폴드</button>
         </div>
 
         <div class="main-controls">
-            <button id="startBtn" onclick="socket.emit('startGame', currentRoom)" style="background: #ffcc00; color: black;">새 게임 시작</button>
-            <button id="leaveBtn" onclick="leave()" style="background: #444; color: white;">게임 나가기</button>
+            <button id="readyBtn" onclick="toggleReady()">게임 준비 (Ready)</button>
+            <button id="leaveBtn" onclick="leave()">나가기</button>
         </div>
 
+        <h4>PLAYERS</h4>
         <div id="players"></div>
-        <div id="chatBox"></div>
-        <div style="display:flex;">
-            <input type="text" id="chatInput" style="flex:1; padding:10px; border:none;" placeholder="채팅 입력...">
-            <button onclick="sendChat()" style="padding:10px; background:#555; color:white;">전송</button>
+
+        <div class="chat-area">
+            <div id="chatBox"></div>
+            <div class="chat-input-group">
+                <input type="text" id="chatInput" placeholder="메시지를 입력하세요..." onkeypress="if(event.keyCode==13) sendChat()">
+                <button onclick="sendChat()">전송</button>
+            </div>
         </div>
     </div>
 
@@ -58,91 +98,120 @@
         const socket = io();
         let currentRoom = '', myCards = [], communityCards = [];
 
-        // 카드 텍스트를 이미지 파일 이름으로 변환 (예: As -> ACE of SPADES)
         function getCardImg(cardStr) {
             const val = cardStr.slice(0, -1);
-            const suit = cardStr.slice(-1);
-            const valMap = { 'T':'10', 'J':'JACK', 'Q':'QUEEN', 'K':'KING', 'A':'ACE' };
-            const suitMap = { 's':'SPADES', 'h':'HEARTS', 'd':'DIAMONDS', 'c':'CLUBS' };
-            const v = valMap[val] || val;
-            const s = suitMap[suit];
-            // 무료 온라인 카드 이미지 라이브러리 사용
-            return `https://www.deckofcardsapi.com/static/img/${val === 'T' ? '0' : val}${suit.toUpperCase()}.png`;
+            const suit = cardStr.slice(-1).toUpperCase();
+            const v = (val === 'T') ? '0' : val;
+            return `https://www.deckofcardsapi.com/static/img/${v}${suit}.png`;
         }
 
         function join() {
             const nickname = document.getElementById('nick').value;
             currentRoom = document.getElementById('room').value;
-            if(!nickname || !currentRoom) return;
+            if(!nickname || !currentRoom) return alert("닉네임과 방 코드를 입력해주세요.");
             socket.emit('joinRoom', { roomCode: currentRoom, nickname });
             document.getElementById('lobby').style.display = 'none';
-            document.getElementById('game').style.display = 'block';
+            document.getElementById('game').style.display = 'flex';
         }
 
         function leave() { socket.emit('leaveRoom'); location.reload(); }
+        function toggleReady() { socket.emit('toggleReady', currentRoom); }
         function sendAction(type, amount = 0) { socket.emit('action', { roomCode: currentRoom, type, amount }); }
+        
         function sendChat() {
             const input = document.getElementById('chatInput');
-            if(input.value) { socket.emit('sendMessage', { roomCode: currentRoom, msg: input.value }); input.value = ''; }
+            if(input.value.trim()) {
+                socket.emit('sendMessage', { roomCode: currentRoom, msg: input.value });
+                input.value = '';
+            }
         }
 
         socket.on('roomUpdate', (room) => {
-            document.getElementById('potAmount').innerText = room.pot;
+            document.getElementById('potAmount').innerText = room.pot.toLocaleString();
             const pDiv = document.getElementById('players');
             pDiv.innerHTML = '';
 
             const me = room.players.find(p => p.id === socket.id);
             const isMyTurn = room.players[room.currentTurn]?.id === socket.id && room.gameState === 'playing';
-            
-            // 1. 혼자일 때 시작 버튼 비활성화
-            const activeCount = room.players.filter(p => !p.isWaiting).length;
-            document.getElementById('startBtn').disabled = (room.gameState === 'playing' || activeCount < 2);
-            document.getElementById('startBtn').style.opacity = (room.gameState === 'playing' || activeCount < 2) ? 0.4 : 1;
 
-            if(me && isMyTurn) {
+            // 준비 버튼 상태
+            if (me) {
+                const btn = document.getElementById('readyBtn');
+                if (room.gameState === 'playing') {
+                    btn.innerText = "게임 진행 중";
+                    btn.classList.add('disabled');
+                } else {
+                    btn.classList.remove('disabled');
+                    btn.innerText = me.isReady ? "준비 완료 (취소)" : "게임 준비 (Ready)";
+                    btn.style.background = me.isReady ? "#28a745" : "#ffcc00";
+                    btn.style.color = me.isReady ? "white" : "black";
+                }
+            }
+
+            // 액션 버튼 상태
+            if (me && isMyTurn) {
                 const diff = room.currentMaxBet - me.roundBet;
                 document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
-                document.getElementById('checkBtn').classList.toggle('disabled', diff > 0);
-                document.getElementById('callBtn').classList.toggle('disabled', diff === 0);
+                document.getElementById('checkBtn').className = (diff > 0) ? 'disabled' : 'check';
+                document.getElementById('callBtn').className = (diff === 0) ? 'disabled' : 'call';
+            } else {
+                ['checkBtn', 'callBtn', 'raiseBtn', 'foldBtn'].forEach(id => {
+                    document.getElementById(id).classList.add('disabled');
+                });
             }
 
             room.players.forEach((p, idx) => {
-                const turn = room.currentTurn === idx && room.gameState === 'playing' ? 'active-turn' : '';
+                const isTurn = room.currentTurn === idx && room.gameState === 'playing' ? 'active-turn' : '';
+                const readyStatus = p.isReady ? '<span style="color:#00ff00;">[READY]</span>' : '<span style="color:#ffaa00;">[WAIT]</span>';
+                const actionText = p.lastAction ? ` | ${p.lastAction}` : '';
+                
                 pDiv.innerHTML += `
-                    <div class="player-slot ${turn}">
-                        <b>${p.nickname}</b> | 💰${p.chips}<br>
-                        <small>${p.lastAction || '대기'} ${p.folded ? '❌FOLD' : ''} ${p.isWaiting ? '(다음판 참여)' : ''}</small>
+                    <div class="player-slot ${isTurn}">
+                        <div style="font-weight:bold; font-size:14px;">${p.nickname} ${p.id === socket.id ? '(나)' : ''}</div>
+                        <div style="color:gold; font-size:13px;">💰 ${p.chips.toLocaleString()}</div>
+                        <div style="font-size:11px; margin-top:4px;">
+                            ${room.gameState === 'waiting' ? readyStatus : (p.folded ? '<span style="color:#ff4444;">FOLD</span>' : 'PLAYING')}
+                            ${actionText}
+                        </div>
                     </div>`;
             });
-            if(me) solveHand(me);
+            if (me) solveHand(me);
         });
 
         function solveHand(me) {
-            if(me.cards.length < 2) return;
+            if (me.cards.length < 2) {
+                document.getElementById('handRank').innerText = "";
+                return;
+            }
             const combined = [...me.cards, ...communityCards];
-            if(combined.length >= 2) {
-                const hand = Hand.solve(combined);
-                document.getElementById('handRank').innerText = "내 족보: " + hand.descr;
+            if (combined.length >= 2) {
+                try {
+                    const hand = Hand.solve(combined);
+                    document.getElementById('handRank').innerText = "내 족보: " + hand.descr;
+                } catch(e) {}
             }
         }
 
         socket.on('dealPrivateCards', (cards) => {
             myCards = cards;
             const div = document.getElementById('myCards');
-            div.innerHTML = '<h4>MY CARDS</h4>';
+            div.innerHTML = '';
             cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
         });
 
         socket.on('communityUpdate', (cards) => {
             communityCards = cards;
             const div = document.getElementById('communityCards');
-            div.innerHTML = '<h4>COMMUNITY</h4>';
+            div.innerHTML = '';
             cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
+            if (cards.length === 0) div.innerHTML = '<div style="color:#ffffff44; line-height:85px;">베팅 라운드 대기 중</div>';
         });
 
         socket.on('chatUpdate', (msg) => {
             const b = document.getElementById('chatBox');
-            b.innerHTML += `<div>${msg}</div>`;
+            const div = document.createElement('div');
+            div.textContent = msg;
+            b.appendChild(div);
             b.scrollTop = b.scrollHeight;
         });
 
