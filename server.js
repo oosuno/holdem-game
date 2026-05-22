@@ -83,18 +83,22 @@ io.on('connection', (socket) => {
         if (!player || player.id !== socket.id) return;
 
         room.actionCount++;
-        player.lastAction = type.toUpperCase();
 
         if (type === 'call') {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; room.pot += diff;
+            player.lastAction = 'CALL';
         } else if (type === 'raise') {
             const diff = room.currentMaxBet - player.roundBet;
-            const totalRaise = diff + amount; // 콜 금액 + 입력한 추가 금액
+            const totalRaise = diff + amount;
             player.chips -= totalRaise; player.roundBet += totalRaise; room.pot += totalRaise;
             room.currentMaxBet = player.roundBet;
+            player.lastAction = `RAISE ${player.roundBet.toLocaleString()}`; // 금액 표시 수정
         } else if (type === 'fold') {
             player.folded = true;
+            player.lastAction = 'FOLD';
+        } else if (type === 'check') {
+            player.lastAction = 'CHECK';
         }
 
         const active = room.players.filter(p => !p.folded);
@@ -111,11 +115,15 @@ io.on('connection', (socket) => {
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
-                // 리버 종료 -> 쇼다운 모드
                 room.gameState = 'showdown';
-                // 오픈 순서 초기화 (첫 번째 생존자부터)
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
-                io.to(roomCode).emit('roomUpdate', room);
+                
+                // 첫 번째 오픈자 자동 SHOW 처리
+                const firstPlayer = room.players[room.showdownTurn];
+                firstPlayer.showCards = true;
+                firstPlayer.lastAction = 'SHOW';
+                
+                moveToNextShowdownTurn(room, roomCode);
             }
         } else {
             do {
@@ -124,6 +132,29 @@ io.on('connection', (socket) => {
         }
         io.to(roomCode).emit('roomUpdate', room);
     });
+
+    function moveToNextShowdownTurn(room, roomCode) {
+        let found = false;
+        for (let i = 1; i < room.players.length; i++) {
+            let idx = (room.showdownTurn + i) % room.players.length;
+            let p = room.players[idx];
+            if (!p.folded && p.lastAction !== 'SHOW' && p.lastAction !== 'MUCK') {
+                room.showdownTurn = idx;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            const active = room.players.filter(p => !p.folded);
+            const winners = solveWinners(active, room.communityCards);
+            const prize = Math.floor(room.pot / winners.length);
+            winners.forEach(w => {
+                const p = room.players.find(pl => pl.id === w.id);
+                p.chips += prize;
+            });
+            endGame(roomCode, `결과: ${winners.map(w => w.nickname).join(', ')} 승리!`);
+        }
+    }
 
     socket.on('showdownAction', ({ roomCode, action }) => {
         const room = rooms[roomCode];
@@ -134,30 +165,8 @@ io.on('connection', (socket) => {
         if (action === 'show') player.showCards = true;
         player.lastAction = action.toUpperCase();
 
-        // 다음 오픈할 사람 찾기
-        let nextIdx = (room.showdownTurn + 1) % room.players.length;
-        let found = false;
-        for (let i = 0; i < room.players.length; i++) {
-            let idx = (room.showdownTurn + 1 + i) % room.players.length;
-            if (!room.players[idx].folded && room.players[idx].lastAction !== 'SHOW' && room.players[idx].lastAction !== 'MUCK') {
-                room.showdownTurn = idx;
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
-            const active = room.players.filter(p => !p.folded);
-            const winners = solveWinners(active, room.communityCards);
-            const prize = Math.floor(room.pot / winners.length);
-            winners.forEach(w => {
-                const p = room.players.find(pl => pl.id === w.id);
-                p.chips += prize;
-            });
-            endGame(roomCode, `결과: ${winners.map(w => w.nickname).join(', ')} 승리!`);
-        } else {
-            io.to(roomCode).emit('roomUpdate', room);
-        }
+        moveToNextShowdownTurn(room, roomCode);
+        io.to(roomCode).emit('roomUpdate', room);
     });
 
     function solveWinners(players, community) {
@@ -179,7 +188,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (!room) return;
         room.gameState = 'waiting';
-        room.players.forEach(p => { p.isReady = false; p.roundBet = 0; p.lastAction = ''; });
+        room.players.forEach(p => { p.isReady = false; p.roundBet = 0; p.lastAction = ''; p.showCards = false; });
         io.to(roomCode).emit('alert', msg);
         io.to(roomCode).emit('roomUpdate', room);
     }

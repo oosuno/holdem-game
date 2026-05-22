@@ -99,7 +99,6 @@
 
         function translateHand(desc) {
             let translated = desc;
-            // Two Pair 문구 추출 개선 (예: "Two Pair, J's & 8's")
             if (desc.includes("Two Pair")) {
                 const parts = desc.replace("Two Pair, ", "").replace(/'s/g, "").split(" & ");
                 const nums = parts.map(n => valMap[n] || n).join(" ");
@@ -155,15 +154,13 @@
             const pDiv = document.getElementById('players');
             pDiv.innerHTML = '';
             const me = room.players.find(p => p.id === socket.id);
-            const isMyTurn = room.players[room.currentTurn]?.id === socket.id && room.gameState === 'playing';
 
-            // 컨트롤 패널
             document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
             if (room.gameState === 'showdown') {
                 document.getElementById('showdownControl').style.display = 'block';
                 const isShowTurn = room.players[room.showdownTurn]?.id === socket.id;
                 document.getElementById('showdownBtns').style.display = isShowTurn ? 'flex' : 'none';
-                document.getElementById('showdownMsg').innerText = isShowTurn ? "내 차례입니다. 패를 오픈하시겠습니까?" : `${room.players[room.showdownTurn].nickname}님의 오픈 순서입니다.`;
+                document.getElementById('showdownMsg').innerText = isShowTurn ? "패를 오픈하시겠습니까?" : `${room.players[room.showdownTurn].nickname}님의 오픈 순서입니다.`;
             } else {
                 document.getElementById('showdownControl').style.display = 'none';
             }
@@ -181,8 +178,16 @@
             room.players.forEach((p, idx) => {
                 const turn = (room.gameState === 'playing' && room.currentTurn === idx) || (room.gameState === 'showdown' && room.showdownTurn === idx) ? 'active-turn' : '';
                 let cardsHtml = '';
+                let handNameHtml = '';
+
                 if (p.showCards && p.cards.length > 0) {
                     p.cards.forEach(c => cardsHtml += `<img src="${getCardImg(c)}" class="mini-card">`);
+                    if (room.communityCards.length === 5) {
+                        try {
+                            const solved = Hand.solve([...p.cards, ...room.communityCards]);
+                            handNameHtml = `<div style="font-size:11px; color:#ffcc00; margin-top:2px;">${translateHand(solved.descr)}</div>`;
+                        } catch(e) {}
+                    }
                 } else if (!p.folded && room.gameState !== 'waiting') {
                     cardsHtml = '<div style="font-size:10px; color:#ffcc00; margin-top:10px;">🎴 패 소지중</div>';
                 }
@@ -193,6 +198,7 @@
                         <div style="color:gold;">💰 ${p.chips.toLocaleString()}</div>
                         <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
                         <div style="font-size:12px; color:#00ffcc; font-weight:bold;">${actionText}</div>
+                        ${handNameHtml}
                     </div>`;
             });
             if (me) solveHand(me);
