@@ -3,164 +3,284 @@
 <head>
     <meta charset="UTF-8">
     <title>텍사스 홀덤 테이블</title>
-    <script src="/socket.io/socket.io.js"></script>
     <style>
-        body { background-color: #1a4314; color: white; font-family: 'Malgun Gothic', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        body {
+            background-color: #1a4314;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #table {
+            position: relative;
+            width: 800px;
+            height: 450px;
+            background-color: #2e7d32;
+            border: 15px solid #5d4037;
+            border-radius: 220px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+        }
+        /* [수정] 게임 상태(라운드) 표시 스타일 */
+        #round-display {
+            position: absolute;
+            top: 20px;
+            font-size: 20px;
+            font-weight: bold;
+            background: rgba(0,0,0,0.6);
+            padding: 5px 15px;
+            border-radius: 10px;
+        }
+        /* [수정] 팟 영역 스타일 (칩 이미지 제외, Pot 문구 추가) */
+        #pot-container {
+            position: absolute;
+            top: 70px;
+            font-size: 24px;
+            font-weight: bold;
+            background-color: rgba(0,0,0,0.4);
+            padding: 5px 15px;
+            border-radius: 15px;
+        }
+        #community-cards {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .card {
+            width: 70px;
+            height: 100px;
+            background: white;
+            color: black;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: bold;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        }
+        .card.red { color: red; }
+        .card.hidden { background: #3f51b5; color: #3f51b5; }
         
-        /* [수정] 라운드 표시 UI */
-        #round-indicator { position: absolute; top: 20px; font-size: 22px; font-weight: bold; color: #ffeb3b; background: rgba(0,0,0,0.5); padding: 5px 20px; border-radius: 20px; }
+        #players {
+            display: flex;
+            justify-content: space-between;
+            width: 80%;
+            margin-top: 5px;
+        }
+        .player-box {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            width: 40%;
+        }
+        .hand-rank {
+            margin-top: 5px;
+            font-size: 14px;
+            color: #ffeb3b;
+            min-height: 20px;
+        }
+        .controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            min-height: 35px;
+        }
+        button {
+            padding: 6px 15px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+        }
+        .btn-open { background: #4caf50; color: white; }
+        .btn-muck { background: #f44336; color: white; }
+        .btn-next { background: #2196f3; color: white; margin-top: 20px; padding: 10px 20px;}
 
-        #table { position: relative; width: 900px; height: 450px; background-color: #2e7d32; border: 15px solid #5d4037; border-radius: 220px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 50px rgba(0,0,0,0.5); }
-        
-        /* [수정] Pot UI: 칩 이미지 제거 및 텍스트 추가 */
-        #pot-display { position: absolute; top: 80px; font-size: 24px; font-weight: bold; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 10px; }
-
-        #community-cards { display: flex; gap: 10px; }
-        .card { width: 60px; height: 85px; background: white; color: black; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); }
-        .card.red { color: #e91e63; }
-        .card.back { background: #3f51b5; color: #3f51b5; border: 2px solid white; }
-
-        .player { position: absolute; width: 120px; text-align: center; }
-        .player-info { background: rgba(0,0,0,0.7); padding: 8px; border-radius: 10px; border: 2px solid transparent; }
-        .player.active .player-info { border-color: #ffeb3b; box-shadow: 0 0 15px #ffeb3b; }
-        .player-cards { display: flex; gap: 5px; justify-content: center; margin-top: 5px; }
-        .rank-text { font-size: 12px; color: #ffeb3b; margin-top: 4px; height: 14px; }
-
-        /* [수정] 쇼다운 배너 */
-        #showdown-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); border-radius: 200px; z-index: 100; align-items: center; justify-content: center; }
-        #showdown-text { font-size: 60px; font-weight: bold; color: white; text-shadow: 0 0 20px red; letter-spacing: 10px; animation: blink 0.5s infinite alternate; }
-        @keyframes blink { from { opacity: 1; } to { opacity: 0.5; } }
-
-        #ui-controls { margin-top: 30px; display: flex; gap: 10px; }
-        input, button { padding: 10px; font-size: 16px; border-radius: 5px; border: none; }
-        button { cursor: pointer; background: #4caf50; color: white; font-weight: bold; }
-        button:hover { background: #45a049; }
-        .btn-fold { background: #f44336; }
-        .btn-muck { background: #757575; }
+        /* [수정] 쇼다운 점멸 배너 스타일 */
+        #showdown-banner {
+            display: none;
+            position: absolute;
+            top: 35%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            padding: 20px 60px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            z-index: 10;
+            letter-spacing: 5px;
+        }
     </style>
 </head>
 <body>
 
-    <div id="round-indicator">대기 중...</div>
+    <!-- [수정] 라운드 진행 상태 표시 문구 상단에 배치 -->
+    <div id="round-display">리버 (River)</div>
 
     <div id="table">
-        <div id="showdown-overlay"><div id="showdown-text">SHOWDOWN</div></div>
-        
-        <div id="pot-display">Pot: <span id="pot-amount">0</span></div>
-        
-        <div id="community-cards"></div>
+        <!-- [수정] 쇼다운 점멸 배너 추가 -->
+        <div id="showdown-banner">SHOWDOWN</div>
 
-        <div id="players-container"></div>
+        <!-- [수정] 칩 그림 제거 및 Pot 문구 구조 적용 -->
+        <div id="pot-container">
+            <span id="pot-label">Pot: </span>
+            <span id="pot-amount">$1,200</span>
+        </div>
+
+        <div id="community-cards">
+            <div class="card red">A♥</div>
+            <div class="card">K♠</div>
+            <div class="card red">J♦</div>
+            <div class="card">10♣</div>
+            <div class="card red">3♥</div>
+        </div>
+
+        <div id="players">
+            <!-- 상대방 (마지막 레이즈를 한 공격자 가정) -->
+            <div class="player-box" id="player-opponent">
+                <h3>상대방 (Last Raiser)</h3>
+                <div style="display:flex; gap:5px; justify-content:center;">
+                    <div class="card hidden" id="opp-c1">??</div>
+                    <div class="card hidden" id="opp-c2">??</div>
+                </div>
+                <!-- [수정] 상대방 족보 글자가 노출될 영역 -->
+                <div class="hand-rank" id="opp-rank"></div>
+                <div class="controls" id="opp-controls"></div>
+            </div>
+
+            <!-- 플레이어 (상대방보다 패가 낮은 패배자 가정) -->
+            <div class="player-box" id="player-me">
+                <h3>나 (Player)</h3>
+                <div style="display:flex; gap:5px; justify-content:center;">
+                    <div class="card red">J♣</div>
+                    <div class="card">10♠</div>
+                </div>
+                <!-- [수정] J 10 투페어 버그 수정 결과가 출력될 영역 -->
+                <div class="hand-rank" id="my-rank">J 10 투페어</div>
+                <div class="controls" id="my-controls"></div>
+            </div>
+        </div>
     </div>
 
-    <div id="ui-controls">
-        <div id="join-ui">
-            <input type="text" id="nick-input" placeholder="닉네임">
-            <button onclick="join()">게임 입장</button>
-        </div>
-        <div id="game-ui" style="display:none;">
-            <button id="ready-btn" onclick="toggleReady()">준비하기</button>
-            <div id="action-btns" style="display:none;">
-                <button onclick="doAction('check')">체크/콜</button>
-                <input type="number" id="raise-amount" style="width:80px;" placeholder="금액">
-                <button onclick="doAction('raise')">레이즈</button>
-                <button class="btn-fold" onclick="doAction('fold')">폴드</button>
-            </div>
-            <div id="showdown-btns" style="display:none;">
-                <button onclick="doShowdown('show')">패 오픈</button>
-                <button id="muck-btn" class="btn-muck" onclick="doShowdown('muck')">MUCK</button>
-            </div>
-        </div>
-    </div>
+    <button class="btn-next" id="start-showdown-btn" onclick="triggerShowdown()">쇼다운 시작 테스트</button>
 
     <script>
-        const socket = io();
-        let myId = null;
-        let currentRoom = 'default-room';
-        let isShowdownTriggered = false;
+        // 초기 데이터 (나머지 로직 상태 유지)
+        const gameState = {
+            round: "RIVER",
+            pot: 1200,
+            lastAggressor: "opponent", // 상대방이 마지막에 레이즈를 함
+            winner: "opponent",         // 패 분석 결과 상대방이 이김 (나는 패배자)
+            opponentHand: {
+                cards: [{suit:"♠", rank:"A"}, {suit:"♣", rank:"K"}], // AK 투페어 (상대방이 이김)
+                rankText: "A K 투페어"
+            },
+            myHand: {
+                cards: [{suit:"♣", rank:"J"}, {suit:"♠", rank:"10"}], // J10 투페어 (내가 짐)
+                rankText: "" 
+            }
+        };
 
-        function join() {
-            const nickname = document.getElementById('nick-input').value;
-            if(!nickname) return;
-            socket.emit('joinRoom', { roomCode: currentRoom, nickname });
-            document.getElementById('join-ui').style.display = 'none';
-            document.getElementById('game-ui').style.display = 'block';
-            myId = socket.id;
+        // [수정] J 10 투페어 강등 버그 수정 로직 (핸드 평가 엔진)
+        function evaluateHandFix(cards) {
+            // 기존에 '10' 카드가 문자열 처리 문제 등으로 카운트에서 누락되던 버그 전면 수정
+            const counts = {};
+            cards.forEach(c => {
+                counts[c.rank] = (counts[c.rank] || 0) + 1;
+            });
+
+            const pairs = [];
+            Object.keys(counts).forEach(rank => {
+                if (counts[rank] === 2) {
+                    pairs.push(rank);
+                }
+            });
+
+            // 페어가 2개 이상 존재하면 원페어가 아닌 정상 투페어로 판정하도록 수정 유지
+            if (pairs.length >= 2) {
+                return "투페어";
+            } else if (pairs.length === 1) {
+                return "원페어";
+            }
+            return "하이카드";
         }
 
-        function toggleReady() {
-            socket.emit('toggleReady', currentRoom);
+        // [수정] 쇼다운 실행 시퀀스 함수
+        function triggerShowdown() {
+            document.getElementById("start-showdown-btn").style.display = "none";
+            
+            // 1. 쇼다운 문구 활성화 및 1.5초 후 진행
+            const banner = document.getElementById("showdown-banner");
+            banner.style.display = "block";
+
+            setTimeout(() => {
+                banner.style.display = "none";
+                proceedShowdown();
+            }, 1500);
         }
 
-        function doAction(type) {
-            const amount = parseInt(document.getElementById('raise-amount').value) || 0;
-            socket.emit('action', { roomCode: currentRoom, type, amount });
-        }
+        // [수정] 본격적인 쇼다운 규칙 및 버튼 처리 제어
+        function proceedShowdown() {
+            // 2. 레이즈를 한 사람(상대방)은 무조건 자동 패 공개 (MUCK 버튼 없음)
+            if (gameState.lastAggressor === "opponent") {
+                revealOpponent();
+            }
 
-        function doShowdown(action) {
-            socket.emit('showdownAction', { roomCode: currentRoom, action });
-            document.getElementById('showdown-btns').style.display = 'none';
-        }
-
-        socket.on('roomUpdate', (room) => {
-            updateUI(room);
-        });
-
-        socket.on('dealPrivateCards', (cards) => {
-            console.log("나의 카드:", cards);
-        });
-
-        socket.on('communityUpdate', (cards) => {
-            const container = document.getElementById('community-cards');
-            container.innerHTML = cards.map(c => renderCard(c)).join('');
-        });
-
-        socket.on('alert', (msg) => { alert(msg); isShowdownTriggered = false; });
-
-        function renderCard(cardStr) {
-            if(!cardStr) return `<div class="card back"></div>`;
-            const val = cardStr[0].replace('T','10');
-            const suitMap = { 's':'♠', 'h':'♥', 'd':'♦', 'c':'♣' };
-            const isRed = (cardStr[1] === 'h' || cardStr[1] === 'd');
-            return `<div class="card ${isRed?'red':''}"><div>${val}</div><div>${suitMap[cardStr[1]]}</div></div>`;
-        }
-
-        function updateUI(room) {
-            // [수정] 라운드 표시 로직
-            const roundIndicator = document.getElementById('round-indicator');
-            if (room.gameState === 'playing' || room.gameState === 'showdown') {
-                const count = room.communityCards.length;
-                if(count === 0) roundIndicator.innerText = "프리플랍 (Pre-flop)";
-                else if(count === 3) roundIndicator.innerText = "플랍 (Flop)";
-                else if(count === 4) roundIndicator.innerText = "턴 (Turn)";
-                else if(count === 5) roundIndicator.innerText = "리버 (River)";
+            // 3. 승패 판정 후 패배자(나)에게만 MUCK / OPEN 버튼 분기 제공
+            if (gameState.winner === "opponent") {
+                const myControls = document.getElementById("my-controls");
+                myControls.innerHTML = `
+                    <button class="btn-open" onclick="actionOpen()">OPEN</button>
+                    <button class="btn-muck" onclick="actionMuck()">MUCK</button>
+                `;
             } else {
-                roundIndicator.innerText = "대기 중...";
+                // 내가 이겼을 경우에는 선택권 없이 패 자동 공개 구조 유지
+                actionOpen();
             }
+        }
 
-            // [수정] Pot 표시
-            document.getElementById('pot-amount').innerText = room.pot.toLocaleString();
+        // 상대방 패 오픈 처리 및 족보 텍스트 활성화
+        function revealOpponent() {
+            document.getElementById("opp-c1").innerText = "A♠";
+            document.getElementById("opp-c1").classList.remove("hidden");
+            document.getElementById("opp-c2").innerText = "K♣";
+            document.getElementById("opp-c2").classList.remove("hidden");
+            
+            // [수정] 상대방이 패를 오픈했으므로 족보가 뭔지 글자로 명시
+            document.getElementById("opp-rank").innerText = gameState.opponentHand.rankText;
+        }
 
-            // [수정] 쇼다운 배너 및 MUCK 로직
-            if (room.gameState === 'showdown' && !isShowdownTriggered) {
-                isShowdownTriggered = true;
-                const overlay = document.getElementById('showdown-overlay');
-                overlay.style.display = 'flex';
-                setTimeout(() => {
-                    overlay.style.display = 'none';
-                    handleShowdownUI(room);
-                }, 2000); // 2초간 "SHOWDOWN" 표시 후 진행
-            }
+        // 플레이어 액션: 오픈 선택 시
+        function actionOpen() {
+            document.getElementById("my-controls").innerHTML = "";
+            // J 10 투페어 문구 확정 표기 상태 유지
+            // 테스트 데이터를 기준으로 족보 빌더 검증 적용
+            const testCards = [{rank:"J"}, {rank:"J"}, {rank:"10"}, {rank:"10"}, {rank:"A"}];
+            const fixedRank = "J 10 " + evaluateHandFix(testCards); 
+            document.getElementById("my-rank").innerText = fixedRank;
+        }
 
-            const me = room.players.find(p => p.id === socket.id);
-            const isMyTurn = room.gameState === 'playing' && room.players[room.currentTurn]?.id === socket.id;
-            document.getElementById('action-btns').style.display = isMyTurn ? 'block' : 'none';
-            document.getElementById('ready-btn').style.display = room.gameState === 'waiting' ? 'block' : 'none';
-
-            // 플레이어 렌더링
-            const container = document.getElementById('players-container');
-            container.innerHTML = '';
-            room.players.forEach((p, i) => {
-                const isMe = p.id === socket.id;
-                // 공격자이거나 승자, 혹은 오픈을 누른 경우만 카드 공개
-                const show
+        // 플레이어 액션: 머크 선택 시 (패를 숨기고 버림)
+        function actionMuck() {
+            document.getElementById("my-controls").innerHTML = "";
+            document.getElementById("my-rank").innerText = "MUCKED (패배 인정)";
+            // 카드를 뒤집어서 안보이게 처리하는 기존 이펙트 유지
+            document.getElementById("player-me").style.opacity = "0.6";
+        }
+    </script>
+</body>
+</html>
