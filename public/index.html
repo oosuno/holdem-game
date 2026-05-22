@@ -206,3 +206,43 @@
                     <div class="player-slot ${turnClass}">
                         <div style="font-weight:bold;">${p.nickname}</div>
                         <div style="margin-top:2px;">${profitHtml}</div>
+                        <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
+                        <div style="font-size:11px; color:#aaa;">${p.lastAction || '-'}</div>
+                        ${handDescHtml}
+                    </div>`;
+            });
+            if (me) solveHand(me);
+        });
+
+        function solveHand(me) {
+            if (me.cards.length < 2) { document.getElementById('handRank').innerText = ""; return; }
+            const combined = [...me.cards, ...communityCards];
+            if (combined.length >= 2) {
+                try {
+                    const hand = Hand.solve(combined);
+                    document.getElementById('handRank').innerText = "내 족보: " + translateHand(hand.descr);
+                } catch(e) {}
+            }
+        }
+
+        socket.on('dealPrivateCards', (cards) => {
+            const div = document.getElementById('myCards');
+            div.innerHTML = '';
+            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
+        });
+
+        socket.on('communityUpdate', (cards) => {
+            communityCards = cards;
+            const div = document.getElementById('communityCards');
+            div.innerHTML = '';
+            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
+        });
+
+        socket.on('chatUpdate', (msg) => {
+            const b = document.getElementById('chatBox');
+            const d = document.createElement('div'); d.textContent = msg;
+            b.appendChild(d); b.scrollTop = b.scrollHeight;
+        });
+    </script>
+</body>
+</html>
