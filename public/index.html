@@ -9,9 +9,9 @@
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
         #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; align-items: center; }
         
-        /* 칩 시각화 */
-        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-        .chip-stack { width: 40px; height: 40px; background: radial-gradient(circle, #ff0000 30%, #990000 100%); border-radius: 50%; border: 3px dashed white; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 4px 0 #660000; }
+        /* 칩 시각화 대신 Pot 문구 배치 */
+        .pot-area { display: flex; align-items: center; gap: 10px; margin: 15px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
+        .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
         .pot-amount { font-size: 32px; color: #ffcc00; font-weight: bold; }
 
         .card-container { display: flex; justify-content: center; gap: 5px; margin: 10px 0; min-height: 95px; }
@@ -20,7 +20,7 @@
         
         /* 베팅 패널 */
         .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; }
-        .input-bet { width: 60%; padding: 10px; border-radius: 5px; border: none; font-size: 16px; margin-right: 5px; }
+        .input-bet { width: 60%; padding: 10px; border-radius: 5px; border: none; font-size: 16px; margin-right: 5px; background: #eee; color: #333; }
         .btn-group { display: flex; justify-content: center; gap: 5px; margin-top: 10px; }
         .btn-group button { flex: 1; padding: 12px 0; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; }
         .check { background: #555; } .call { background: #007bff; } .raise { background: #28a745; } .fold { background: #dc3545; }
@@ -47,7 +47,7 @@
 
     <div id="game" style="display:none;">
         <div class="pot-area">
-            <div class="chip-stack">C</div>
+            <div class="pot-label">POT</div>
             <div class="pot-amount">💰 <span id="potAmount">0</span></div>
         </div>
         
@@ -96,7 +96,6 @@
         const socket = io();
         let currentRoom = '', myCards = [], communityCards = [];
 
-        // 족보 한글 변환 매핑
         const rankMap = {
             "High Card": "하이카드", "Pair": "원페어", "Two Pair": "투페어", "Three of a Kind": "트리플",
             "Straight": "스트레이트", "Flush": "플러쉬", "Full House": "풀하우스", 
@@ -108,8 +107,7 @@
             let translated = desc;
             Object.keys(rankMap).forEach(key => {
                 if (translated.includes(key)) {
-                    // 예: Pair, 2's -> 2 원페어 / Two Pair, 10's & 2's -> 10 2 투페어
-                    const parts = translated.split(',')[1]?.replace(/'s|&/g, '').split(' ') || [];
+                    const parts = translated.split(',')[1]?.replace(/'s|&/g, '').trim().split(' ') || [];
                     const nums = parts.filter(n => n.trim() !== "").map(n => valMap[n] || n).join(' ');
                     translated = `${nums} ${rankMap[key]}`.trim();
                 }
@@ -135,6 +133,7 @@
             const amount = parseInt(document.getElementById('raiseAmount').value);
             if(!amount || amount <= 0) return alert("금액을 입력하세요.");
             socket.emit('action', { roomCode: currentRoom, type: 'raise', amount });
+            document.getElementById('raiseAmount').value = '';
         }
         function sendAction(type) { socket.emit('action', { roomCode: currentRoom, type }); }
         function sendShowdown(action) { socket.emit('showdownAction', { roomCode: currentRoom, action }); }
@@ -150,7 +149,6 @@
             const me = room.players.find(p => p.id === socket.id);
             const isMyTurn = room.players[room.currentTurn]?.id === socket.id && room.gameState === 'playing';
 
-            // 컨트롤 패널 전환
             document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
             document.getElementById('showdownControl').style.display = room.gameState === 'showdown' ? 'block' : 'none';
 
@@ -168,11 +166,10 @@
             room.players.forEach((p, idx) => {
                 const turn = room.currentTurn === idx && room.gameState === 'playing' ? 'active-turn' : '';
                 let cardsHtml = '';
-                // 쇼다운 시 공개된 패 보여주기
                 if (p.showCards && p.cards.length > 0) {
                     p.cards.forEach(c => cardsHtml += `<img src="${getCardImg(c)}" class="mini-card">`);
                 } else if (!p.folded && room.gameState !== 'waiting') {
-                    cardsHtml = '<div style="font-size:10px;">🎴 패 소지중</div>';
+                    cardsHtml = '<div style="font-size:10px; color:#ffcc00; margin-top:10px;">🎴 패 소지중</div>';
                 }
 
                 pDiv.innerHTML += `
@@ -180,7 +177,7 @@
                         <div style="font-weight:bold;">${p.nickname}</div>
                         <div style="color:gold;">💰 ${p.chips.toLocaleString()}</div>
                         <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
-                        <div style="font-size:11px; color:#aaa;">${p.lastAction || '-'}</div>
+                        <div style="font-size:11px; color:#aaa; font-weight:bold;">${p.lastAction || '-'}</div>
                     </div>`;
             });
             if (me) solveHand(me);
