@@ -9,12 +9,14 @@
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
         #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; align-items: center; }
         
-        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-        .chip-stack { width: 40px; height: 40px; background: radial-gradient(circle, #ff0000 30%, #990000 100%); border-radius: 50%; border: 3px dashed white; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 4px 0 #660000; }
+        #gameStatusMsg { background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; color: #ffcc00; font-weight: bold; margin-bottom: 10px; border: 1px solid #ffcc00; }
+
+        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
+        .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
         .pot-amount { font-size: 32px; color: #ffcc00; font-weight: bold; }
 
         .card-container { display: flex; justify-content: center; gap: 5px; margin: 10px 0; min-height: 95px; }
-        .card-img { width: 65px; height: 90px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); }
+        .card-img { width: 65px; height: 90px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); transition: transform 0.3s; }
         .hand-rank { color: #00ffcc; font-size: 20px; font-weight: bold; margin-bottom: 10px; }
         
         .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; }
@@ -32,6 +34,10 @@
 
         .chat-area { height: 120px; width: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; }
         #chatBox { flex: 1; overflow-y: auto; padding: 8px; font-size: 13px; text-align: left; }
+
+        .profit-plus { color: #00ff00; font-weight: bold; }
+        .profit-minus { color: #ff4444; font-weight: bold; }
+        .opponent-hand { color: #00ffcc; font-size: 11px; font-weight: bold; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -43,8 +49,10 @@
     </div>
 
     <div id="game" style="display:none;">
+        <div id="gameStatusMsg">상대방을 기다리고 있습니다...</div>
+
         <div class="pot-area">
-            <div class="chip-stack">C</div>
+            <div class="pot-label">POT</div>
             <div class="pot-amount">💰 <span id="potAmount">0</span></div>
         </div>
         
@@ -53,7 +61,7 @@
         <div id="myCards" class="card-container"></div>
 
         <div class="bet-panel">
-            <div id="betControl" style="display: none;">
+            <div id="betControl">
                 <input type="number" id="raiseAmount" class="input-bet" placeholder="레이즈 금액 입력">
                 <div class="btn-group">
                     <button id="checkBtn" onclick="sendAction('check')">체크</button>
@@ -63,8 +71,8 @@
                 </div>
             </div>
             <div id="showdownControl" style="display:none;">
-                <h3 style="margin:0 0 10px 0;">쇼다운: 패를 공개하시겠습니까?</h3>
-                <div class="btn-group">
+                <h3 id="showdownMsg" style="margin:0 0 10px 0;">쇼다운 진행 중...</h3>
+                <div class="btn-group" id="showdownBtns">
                     <button class="show" onclick="sendShowdown('show')">오픈 (SHOW)</button>
                     <button class="muck" onclick="sendShowdown('muck')">숨기기 (MUCK)</button>
                 </div>
@@ -91,7 +99,21 @@
     <script src="https://cdn.jsdelivr.net/npm/pokersolver@2.1.2/pokersolver.min.js"></script>
     <script>
         const socket = io();
-        let currentRoom = '', myCards = [], communityCards = [];
+        let currentRoom = '', myCards = [], communityCards = [], lastGameState = 'waiting';
+
+        // 오디오 설정
+        const sfx = {
+            start: new Audio('https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3'),
+            card: new Audio('https://assets.mixkit.co/active_storage/sfx/1603/1603-preview.mp3'),
+            chip: new Audio('https://assets.mixkit.co/active_storage/sfx/1075/1075-preview.mp3')
+        };
+
+        function speak(text, lang = 'ko-KR') {
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.lang = lang;
+            uttr.rate = 1.1;
+            window.speechSynthesis.speak(uttr);
+        }
 
         const rankMap = {
             "High Card": "하이카드", "Pair": "원페어", "Two Pair": "투페어", "Three of a Kind": "트리플",
@@ -118,10 +140,15 @@
         }
 
         function join() {
-            const nickname = document.getElementById('nick').value;
-            currentRoom = document.getElementById('room').value;
-            if(!nickname || !currentRoom) return;
-            socket.emit('joinRoom', { roomCode: currentRoom, nickname });
+            const nickname = document.getElementById('nick').value.trim();
+            const roomCode = document.getElementById('room').value.trim();
+            if(!nickname || !roomCode) return alert("닉네임과 방 코드를 입력하세요.");
+            
+            // 브라우저 소리 재생 허용 유도
+            sfx.start.play().then(() => sfx.start.pause());
+            
+            currentRoom = roomCode;
+            socket.emit('joinRoom', { roomCode, nickname });
             document.getElementById('lobby').style.display = 'none';
             document.getElementById('game').style.display = 'flex';
         }
@@ -139,32 +166,52 @@
         }
 
         socket.on('roomUpdate', (room) => {
+            // 게임 시작 사운드
+            if (lastGameState === 'waiting' && room.gameState === 'playing') {
+                sfx.start.play();
+                speak("게임이 시작되었습니다.");
+            }
+
+            // 쇼다운 음성 (한 번만 실행되도록 상태 체크 필요 시 추가 가능)
+            if (lastGameState === 'playing' && room.gameState === 'showdown') {
+                speak("Showdown", "en-US");
+            }
+
+            document.getElementById('gameStatusMsg').innerText = room.statusMsg;
             document.getElementById('potAmount').innerText = room.pot.toLocaleString();
             const pDiv = document.getElementById('players');
             pDiv.innerHTML = '';
-            
             const me = room.players.find(p => p.id === socket.id);
+
+            document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
             
-            // [강제 반영]: 게임 상태가 playing일 때만 액션창 노출
-            document.getElementById('betControl').style.display = (room.gameState === 'playing') ? 'block' : 'none';
-            document.getElementById('showdownControl').style.display = (room.gameState === 'showdown') ? 'block' : 'none';
-
-            if (me) {
-                const btn = document.getElementById('readyBtn');
-                btn.innerText = me.isReady ? "준비완료 (취소)" : "게임 준비";
-                btn.style.background = me.isReady ? "#28a745" : "#ffcc00";
-
-                const isMyTurn = (room.players[room.currentTurn]?.id === socket.id);
-                const diff = room.currentMaxBet - me.roundBet;
-                document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
-                
-                // 내 차례가 아니면 버튼 비활성화
-                document.getElementById('checkBtn').className = (diff > 0 || !isMyTurn) ? 'disabled' : 'check';
-                document.getElementById('callBtn').className = (diff === 0 || !isMyTurn) ? 'disabled' : 'call';
+            if (room.gameState === 'showdown') {
+                document.getElementById('showdownControl').style.display = 'block';
+                const isMyTurn = room.players[room.showdownTurn]?.id === socket.id;
+                document.getElementById('showdownBtns').style.display = isMyTurn ? 'flex' : 'none';
+                document.getElementById('showdownMsg').innerText = isMyTurn ? "졌습니다. 오픈하시겠습니까?" : `${room.players[room.showdownTurn]?.nickname}님의 오픈 순서입니다.`;
+            } else {
+                document.getElementById('showdownControl').style.display = 'none';
             }
 
             room.players.forEach((p, idx) => {
-                const turn = room.currentTurn === idx && room.gameState === 'playing' ? 'active-turn' : '';
+                const isTurn = (room.gameState === 'playing' && room.currentTurn === idx) || (room.gameState === 'showdown' && room.showdownTurn === idx);
+                
+                // 액션 감지 및 음성/효과음 (마지막 액션이 변경되었을 때만 실행)
+                const lastPlayerState = (window.prevPlayers || [])[idx];
+                if (lastPlayerState && lastPlayerState.lastAction !== p.lastAction && p.lastAction !== '') {
+                    if (p.lastAction.includes('RAISE') || p.lastAction === 'CALL') {
+                        sfx.chip.currentTime = 0; sfx.chip.play();
+                    }
+                    speak(`${p.nickname} ${p.lastAction}`);
+                    
+                    // 쇼다운 시 족보 읽어주기
+                    if (p.lastAction === 'SHOW' && p.handDesc) {
+                        setTimeout(() => speak(translateHand(p.handDesc)), 800);
+                    }
+                }
+
+                const turnClass = isTurn ? 'active-turn' : '';
                 let cardsHtml = '';
                 if (p.showCards && p.cards.length > 0) {
                     p.cards.forEach(c => cardsHtml += `<img src="${getCardImg(c)}" class="mini-card">`);
@@ -172,16 +219,49 @@
                     cardsHtml = '<div style="font-size:10px;">🎴 패 소지중</div>';
                 }
 
+                let profitHtml = p.profit !== 0 ? `<div class="${p.profit > 0 ? 'profit-plus' : 'profit-minus'}">${p.profit > 0 ? '+' : ''}${p.profit.toLocaleString()}</div>` : `<div style="color:#777;">(판 손익: 0)</div>`;
+                let handDescHtml = (p.handDesc && p.showCards) ? `<div class="opponent-hand">${translateHand(p.handDesc)}</div>` : '';
+
                 pDiv.innerHTML += `
-                    <div class="player-slot ${turn}">
+                    <div class="player-slot ${turnClass}">
                         <div style="font-weight:bold;">${p.nickname}</div>
-                        <div style="color:gold;">💰 ${p.chips.toLocaleString()}</div>
+                        <div style="margin-top:2px;">${profitHtml}</div>
                         <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
                         <div style="font-size:11px; color:#aaa;">${p.lastAction || '-'}</div>
+                        ${handDescHtml}
                     </div>`;
             });
-            if (me) solveHand(me);
+
+            if (me) {
+                const btn = document.getElementById('readyBtn');
+                btn.innerText = me.isReady ? "준비완료 (취소)" : "게임 준비";
+                btn.style.background = me.isReady ? "#28a745" : "#ffcc00";
+                const diff = room.currentMaxBet - me.roundBet;
+                document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
+                document.getElementById('checkBtn').className = (diff > 0) ? 'disabled' : 'check';
+                document.getElementById('callBtn').className = (diff === 0) ? 'disabled' : 'call';
+                solveHand(me);
+            }
+
+            window.prevPlayers = JSON.parse(JSON.stringify(room.players));
+            lastGameState = room.gameState;
         });
+
+        socket.on('communityUpdate', (cards) => {
+            if (cards.length > communityCards.length) {
+                sfx.card.currentTime = 0;
+                sfx.card.play();
+            }
+            communityCards = cards;
+            const div = document.getElementById('communityCards');
+            div.innerHTML = '';
+            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img" style="transform: rotateY(180deg); animation: flip 0.5s forwards;">`);
+        });
+
+        // 애니메이션용 CSS 추가
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes flip { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }`;
+        document.head.appendChild(style);
 
         function solveHand(me) {
             if (me.cards.length < 2) { document.getElementById('handRank').innerText = ""; return; }
@@ -200,19 +280,11 @@
             cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
         });
 
-        socket.on('communityUpdate', (cards) => {
-            communityCards = cards;
-            const div = document.getElementById('communityCards');
-            div.innerHTML = '';
-            cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img">`);
-        });
-
         socket.on('chatUpdate', (msg) => {
             const b = document.getElementById('chatBox');
             const d = document.createElement('div'); d.textContent = msg;
             b.appendChild(d); b.scrollTop = b.scrollHeight;
         });
-        socket.on('alert', (msg) => alert(msg));
     </script>
 </body>
 </html>
