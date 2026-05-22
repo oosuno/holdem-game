@@ -3,39 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>홀덤 베팅 버전</title>
+    <title>홀덤 - 전략 베팅 버전</title>
     <style>
         body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; margin: 0; }
-        .card { display: inline-block; background: white; color: black; padding: 10px; margin: 5px; border-radius: 5px; font-weight: bold; width: 40px; }
+        .card { display: inline-block; background: white; color: black; padding: 10px; margin: 5px; border-radius: 5px; font-weight: bold; width: 42px; border: 1px solid #ccc; }
         .red { color: red; }
         .btn-group { margin: 20px; }
-        button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+        button { padding: 12px 18px; font-size: 15px; margin: 5px; cursor: pointer; border-radius: 8px; border: none; font-weight: bold; }
+        .check { background: #6c757d; color: white; }
         .call { background: #007bff; color: white; }
         .raise { background: #28a745; color: white; }
         .fold { background: #dc3545; color: white; }
-        .active-turn { border: 3px solid yellow; background: rgba(255,255,0,0.2); }
-        .pot-area { font-size: 24px; color: gold; margin: 20px; }
+        .active-turn { border: 3px solid yellow; background: rgba(255,255,0,0.15); border-radius: 10px; }
+        .pot-area { font-size: 28px; color: gold; margin: 20px; text-shadow: 2px 2px 4px black; }
+        .player-slot { padding: 15px; margin: 10px auto; width: 80%; max-width: 300px; background: rgba(255,255,255,0.1); }
     </style>
 </head>
 <body>
     <div id="lobby">
-        <input type="text" id="nick" placeholder="닉네임">
-        <input type="text" id="room" placeholder="방코드">
-        <button onclick="join()">입장</button>
+        <h2 style="margin-top:50px;">♠️ 홀덤 온라인 ♣️</h2>
+        <input type="text" id="nick" placeholder="닉네임" style="padding:10px; border-radius:5px;"><br>
+        <input type="text" id="room" placeholder="방코드" style="padding:10px; border-radius:5px; margin-top:10px;"><br>
+        <button onclick="join()" style="margin-top:20px; width:150px; background:#e50914; color:white;">방 입장</button>
     </div>
 
     <div id="game" style="display:none;">
         <div class="pot-area">💰 POT: <span id="potAmount">0</span></div>
         <div id="community"></div>
-        <hr>
+        <hr style="border: 0.5px solid #444;">
         <div id="myCards"></div>
+        
         <div class="btn-group">
-            <button class="call" onclick="sendAction('call')">콜 (1000)</button>
-            <button class="raise" onclick="sendAction('raise', 2000)">레이즈 (2000)</button>
+            <button class="check" onclick="sendAction('check')">체크</button>
+            <button class="call" onclick="sendAction('call')">콜</button>
+            <button class="raise" onclick="sendAction('raise', 1000)">+1000 레이즈</button>
             <button class="fold" onclick="sendAction('fold')">다이</button>
         </div>
-        <button onclick="socket.emit('dealCommunity', currentRoom)">카드 깔기</button>
-        <button onclick="socket.emit('startGame', currentRoom)" style="background:#666;">새 게임</button>
+
+        <div style="margin-bottom: 20px;">
+            <button onclick="socket.emit('dealCommunity', currentRoom)" style="background:#555; color:white;">카드 깔기 (다음 단계)</button>
+            <button onclick="socket.emit('startGame', currentRoom)" style="background:#333; color:gray; font-size:12px;">새 게임 시작</button>
+        </div>
+        
         <div id="players"></div>
     </div>
 
@@ -47,6 +56,7 @@
         function join() {
             const nickname = document.getElementById('nick').value;
             currentRoom = document.getElementById('room').value;
+            if(!nickname || !currentRoom) return alert("입력 정보를 확인하세요!");
             socket.emit('joinRoom', { roomCode: currentRoom, nickname });
             document.getElementById('lobby').style.display = 'none';
             document.getElementById('game').style.display = 'block';
@@ -56,13 +66,20 @@
             socket.emit('action', { roomCode: currentRoom, type, amount });
         }
 
+        socket.on('alert', (msg) => alert(msg));
+
         socket.on('roomUpdate', (room) => {
             document.getElementById('potAmount').innerText = room.pot;
             const pDiv = document.getElementById('players');
-            pDiv.innerHTML = '<h4>플레이어</h4>';
+            pDiv.innerHTML = '<h4>참여 플레이어</h4>';
             room.players.forEach((p, idx) => {
                 const isTurn = room.currentTurn === idx ? 'active-turn' : '';
-                pDiv.innerHTML += `<div class="player-slot ${isTurn}">${p.nickname}: 💰${p.chips} ${p.folded ? '(죽음)' : ''}</div>`;
+                pDiv.innerHTML += `
+                    <div class="player-slot ${isTurn}">
+                        <strong>${p.nickname}</strong><br>
+                        칩: 💰${p.chips} | 이번 베팅: ${p.roundBet}<br>
+                        ${p.folded ? '<span style="color:red;">[FOLDED]</span>' : ''}
+                    </div>`;
             });
         });
 
