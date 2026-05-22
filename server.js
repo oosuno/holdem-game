@@ -67,9 +67,7 @@ io.on('connection', (socket) => {
         room.actionCount = 0;
         
         room.players.forEach(p => {
-            p.roundBet = 0;
-            p.folded = false;
-            p.lastAction = '';
+            p.roundBet = 0; p.folded = false; p.lastAction = '';
             p.showCards = false;
             p.cards = [room.deck.pop(), room.deck.pop()];
             io.to(p.id).emit('dealPrivateCards', p.cards);
@@ -91,7 +89,7 @@ io.on('connection', (socket) => {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; room.pot += diff;
         } else if (type === 'raise') {
-            const total = amount; // 직접 입력받은 총 금액
+            const total = amount;
             const pay = total - player.roundBet;
             player.chips -= pay; player.roundBet = total; room.pot += pay;
             room.currentMaxBet = total;
@@ -113,7 +111,13 @@ io.on('connection', (socket) => {
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
-                // 쇼다운 모드 진입
+                // 리버 베팅 종료 -> 쇼다운 처리
+                const winners = solveWinners(active, room.communityCards);
+                room.winnersIds = winners.map(w => w.id);
+                // 이긴 사람은 자동으로 카드 오픈 상태로 변경
+                room.players.forEach(p => {
+                    if (room.winnersIds.includes(p.id)) p.showCards = true;
+                });
                 room.gameState = 'showdown';
                 io.to(roomCode).emit('roomUpdate', room);
             }
@@ -134,10 +138,12 @@ io.on('connection', (socket) => {
         player.lastAction = action.toUpperCase();
 
         const active = room.players.filter(p => !p.folded);
-        const showdownFinished = active.every(p => p.lastAction === 'SHOW' || p.lastAction === 'MUCK');
+        // 승자를 제외한 나머지 사람들이 쇼다운 액션을 마쳤는지 확인
+        const showdownFinished = active.every(p => 
+            room.winnersIds.includes(p.id) || p.lastAction === 'SHOW' || p.lastAction === 'MUCK'
+        );
 
         if (showdownFinished) {
-            // 승자 계산 로직
             const winners = solveWinners(active, room.communityCards);
             const prize = Math.floor(room.pot / winners.length);
             winners.forEach(w => {
@@ -155,7 +161,6 @@ io.on('connection', (socket) => {
         let winners = [];
         players.forEach(p => {
             const hand = Solver.solve([...p.cards, ...community]);
-            p.solvedHand = hand;
             if (hand.rank > bestScore) {
                 bestScore = hand.rank;
                 winners = [p];
@@ -170,14 +175,14 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (!room) return;
         room.gameState = 'waiting';
-        room.players.forEach(p => { p.isReady = false; });
+        room.players.forEach(p => { p.isReady = false; p.roundBet = 0; p.lastAction = ''; });
         io.to(roomCode).emit('alert', msg);
         io.to(roomCode).emit('roomUpdate', room);
     }
 
     socket.on('sendMessage', ({ roomCode, msg }) => {
         const room = rooms[roomCode];
-        const player = room.players.find(p => p.id === socket.id);
+        const player = room.players?.find(p => p.id === socket.id);
         if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
     });
 

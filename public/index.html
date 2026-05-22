@@ -9,8 +9,8 @@
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
         #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; align-items: center; }
         
-        /* 칩 시각화 대신 Pot 문구 배치 */
-        .pot-area { display: flex; align-items: center; gap: 10px; margin: 15px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
+        .round-info { background: #e67e22; color: white; padding: 5px 20px; border-radius: 5px; font-weight: bold; margin-bottom: 10px; font-size: 14px; }
+        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
         .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
         .pot-amount { font-size: 32px; color: #ffcc00; font-weight: bold; }
 
@@ -18,7 +18,6 @@
         .card-img { width: 65px; height: 90px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); }
         .hand-rank { color: #00ffcc; font-size: 20px; font-weight: bold; margin-bottom: 10px; }
         
-        /* 베팅 패널 */
         .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; }
         .input-bet { width: 60%; padding: 10px; border-radius: 5px; border: none; font-size: 16px; margin-right: 5px; background: #eee; color: #333; }
         .btn-group { display: flex; justify-content: center; gap: 5px; margin-top: 10px; }
@@ -27,7 +26,6 @@
         .show { background: #8e44ad; } .muck { background: #7f8c8d; }
         .disabled { opacity: 0.3; filter: grayscale(1); pointer-events: none; }
 
-        /* 플레이어 리스트 */
         #players { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; width: 100%; }
         .player-slot { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
         .active-turn { border: 2px solid #ffcc00; background: rgba(255,204,0,0.1); }
@@ -46,6 +44,7 @@
     </div>
 
     <div id="game" style="display:none;">
+        <div id="roundTag" class="round-info">대기 중</div>
         <div class="pot-area">
             <div class="pot-label">POT</div>
             <div class="pot-amount">💰 <span id="potAmount">0</span></div>
@@ -66,8 +65,9 @@
                 </div>
             </div>
             <div id="showdownControl" style="display:none;">
-                <h3 style="margin:0 0 10px 0;">쇼다운: 패를 공개하시겠습니까?</h3>
-                <div class="btn-group">
+                <h3 style="margin:0 0 10px 0;">결과 확인 단계</h3>
+                <div id="muckInfo" style="margin-bottom:10px; font-size:14px; color:#ffcc00;"></div>
+                <div class="btn-group" id="showdownBtns">
                     <button class="show" onclick="sendShowdown('show')">오픈 (SHOW)</button>
                     <button class="muck" onclick="sendShowdown('muck')">숨기기 (MUCK)</button>
                 </div>
@@ -107,8 +107,11 @@
             let translated = desc;
             Object.keys(rankMap).forEach(key => {
                 if (translated.includes(key)) {
+                    // Two Pair 처리 수정: PokerSolver desc 예시 "Two Pair, J's & 8's"
+                    const isTwoPair = key === "Two Pair";
                     const parts = translated.split(',')[1]?.replace(/'s|&/g, '').trim().split(' ') || [];
-                    const nums = parts.filter(n => n.trim() !== "").map(n => valMap[n] || n).join(' ');
+                    const filtered = parts.filter(n => n.trim() !== "");
+                    const nums = filtered.map(n => valMap[n] || n).join(' ');
                     translated = `${nums} ${rankMap[key]}`.trim();
                 }
             });
@@ -143,14 +146,40 @@
         }
 
         socket.on('roomUpdate', (room) => {
+            const rTag = document.getElementById('roundTag');
+            if(room.gameState === 'waiting') rTag.innerText = '대기 중';
+            else if(room.gameState === 'showdown') rTag.innerText = '쇼다운 (결과 확인)';
+            else {
+                const len = room.communityCards.length;
+                rTag.innerText = len === 0 ? '프리플랍' : len === 3 ? '플랍' : len === 4 ? '턴' : '리버';
+            }
+
             document.getElementById('potAmount').innerText = room.pot.toLocaleString();
             const pDiv = document.getElementById('players');
             pDiv.innerHTML = '';
             const me = room.players.find(p => p.id === socket.id);
             const isMyTurn = room.players[room.currentTurn]?.id === socket.id && room.gameState === 'playing';
 
+            // 베팅/쇼다운 컨트롤 영역
             document.getElementById('betControl').style.display = room.gameState === 'playing' ? 'block' : 'none';
-            document.getElementById('showdownControl').style.display = room.gameState === 'showdown' ? 'block' : 'none';
+            if (room.gameState === 'showdown') {
+                document.getElementById('showdownControl').style.display = 'block';
+                const isWinner = room.winnersIds?.includes(socket.id);
+                const hasActed = me.lastAction === 'SHOW' || me.lastAction === 'MUCK';
+                
+                if (isWinner) {
+                    document.getElementById('muckInfo').innerText = "축하합니다! 승리하여 패가 자동 공개되었습니다.";
+                    document.getElementById('showdownBtns').style.display = 'none';
+                } else if (hasActed) {
+                    document.getElementById('muckInfo').innerText = "선택을 완료했습니다. 다른 플레이어를 기다리는 중...";
+                    document.getElementById('showdownBtns').style.display = 'none';
+                } else {
+                    document.getElementById('muckInfo').innerText = "패배했습니다. 패를 공개하시겠습니까?";
+                    document.getElementById('showdownBtns').style.display = 'flex';
+                }
+            } else {
+                document.getElementById('showdownControl').style.display = 'none';
+            }
 
             if (me) {
                 const btn = document.getElementById('readyBtn');
@@ -172,12 +201,15 @@
                     cardsHtml = '<div style="font-size:10px; color:#ffcc00; margin-top:10px;">🎴 패 소지중</div>';
                 }
 
+                // 현재 라운드 액션 텍스트 표시
+                const actionText = p.folded ? 'FOLD' : (p.lastAction || '대기');
+
                 pDiv.innerHTML += `
                     <div class="player-slot ${turn}">
                         <div style="font-weight:bold;">${p.nickname}</div>
                         <div style="color:gold;">💰 ${p.chips.toLocaleString()}</div>
                         <div style="height:45px; margin:5px 0;">${cardsHtml}</div>
-                        <div style="font-size:11px; color:#aaa; font-weight:bold;">${p.lastAction || '-'}</div>
+                        <div style="font-size:12px; color:#00ffcc; font-weight:bold; background:rgba(255,255,255,0.1); border-radius:3px; padding:2px;">${actionText}</div>
                     </div>`;
             });
             if (me) solveHand(me);
