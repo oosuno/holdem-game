@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
         room.pot = 0;
         room.currentMaxBet = 0;
         room.currentTurn = 0;
-        room.actionCount = 0; // 새 게임 시작 시 액션 카운트 초기화
+        room.actionCount = 0;
         
         room.players.forEach(p => {
             p.roundBet = 0;
@@ -83,7 +83,7 @@ io.on('connection', (socket) => {
         const player = room.players[room.currentTurn];
         if (!player || player.id !== socket.id) return;
 
-        room.actionCount++; // 누군가 액션을 할 때마다 카운트 업
+        room.actionCount++;
         player.lastAction = type.toUpperCase();
 
         if (type === 'call') {
@@ -102,12 +102,55 @@ io.on('connection', (socket) => {
         if (active.length === 1) {
             active[0].chips += room.pot;
             endGame(roomCode, `${active[0].nickname}님 폴드 승리!`);
-        } 
-        // 라운드 종료 조건: 모든 생존자 베팅액 동일 && 모두가 최소 한 번은 차례를 가짐
-        else if (active.every(p => p.roundBet === room.currentMaxBet) && room.actionCount >= active.length) {
+        } else if (active.every(p => p.roundBet === room.currentMaxBet) && room.actionCount >= active.length) {
             if (room.communityCards.length < 5) {
                 const draw = room.communityCards.length === 0 ? 3 : 1;
                 for(let i=0; i<draw; i++) room.communityCards.push(room.deck.pop());
                 room.currentMaxBet = 0;
-                room.actionCount = 0; // 라운드 변경 시 카운트 리셋
-                room.
+                room.actionCount = 0;
+                room.players.forEach(p => { p.roundBet = 0; p.lastAction = ''; });
+                room.currentTurn = room.players.findIndex(p => !p.folded);
+                io.to(roomCode).emit('communityUpdate', room.communityCards);
+            } else {
+                endGame(roomCode, '게임 종료');
+            }
+        } else {
+            do {
+                room.currentTurn = (room.currentTurn + 1) % room.players.length;
+            } while (room.players[room.currentTurn].folded);
+        }
+        io.to(roomCode).emit('roomUpdate', room);
+    });
+
+    function endGame(roomCode, msg) {
+        const room = rooms[roomCode];
+        if (!room) return;
+        room.gameState = 'waiting';
+        room.players.forEach(p => { p.isReady = false; p.cards = []; });
+        io.to(roomCode).emit('alert', msg);
+        io.to(roomCode).emit('roomUpdate', room);
+    }
+
+    socket.on('sendMessage', ({ roomCode, msg }) => {
+        const room = rooms[roomCode];
+        const player = room.players.find(p => p.id === socket.id);
+        if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
+    });
+
+    const leave = (socketId) => {
+        for (const code in rooms) {
+            const room = rooms[code];
+            const idx = room.players.findIndex(p => p.id === socketId);
+            if (idx !== -1) {
+                room.players.splice(idx, 1);
+                if (room.players.length === 0) delete rooms[code];
+                else io.to(code).emit('roomUpdate', room);
+            }
+        }
+    };
+    socket.on('leaveRoom', () => leave(socket.id));
+    socket.on('disconnect', () => leave(socket.id));
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

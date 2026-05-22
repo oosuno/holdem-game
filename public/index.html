@@ -127,21 +127,15 @@
                 }
             }
 
-            // 액션 버튼 제어 로직
-            const actionButtons = ['checkBtn', 'callBtn', 'raiseBtn', 'foldBtn'];
             if (me && isMyTurn) {
                 const diff = room.currentMaxBet - me.roundBet;
                 document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
-                
-                // 1. 체크는 베팅액 차이가 없을 때만 가능
                 document.getElementById('checkBtn').className = (diff > 0) ? 'disabled' : 'check';
-                // 2. 콜은 베팅액 차이가 있을 때만 가능
                 document.getElementById('callBtn').className = (diff === 0) ? 'disabled' : 'call';
-                // 3. 레이즈와 폴드는 항상 가능
                 document.getElementById('raiseBtn').className = 'raise';
                 document.getElementById('foldBtn').className = 'fold';
             } else {
-                actionButtons.forEach(id => document.getElementById(id).className = 'disabled');
+                ['checkBtn', 'callBtn', 'raiseBtn', 'foldBtn'].forEach(id => document.getElementById(id).className = 'disabled');
             }
 
             room.players.forEach((p, idx) => {
