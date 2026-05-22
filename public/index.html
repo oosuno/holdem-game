@@ -9,7 +9,7 @@
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
         #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; align-items: center; }
         
-        #gameStatusMsg { background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; color: #ffcc00; font-weight: bold; margin-bottom: 10px; border: 1px solid #ffcc00; }
+        #gameStatusMsg { background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; color: #ffcc00; font-weight: bold; margin-bottom: 10px; border: 1px solid #ffcc00; text-align: center; }
 
         .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
         .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
@@ -101,7 +101,6 @@
         const socket = io();
         let currentRoom = '', myCards = [], communityCards = [], lastGameState = 'waiting';
 
-        // 오디오 설정
         const sfx = {
             start: new Audio('https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3'),
             card: new Audio('https://assets.mixkit.co/active_storage/sfx/1603/1603-preview.mp3'),
@@ -110,8 +109,7 @@
 
         function speak(text, lang = 'ko-KR') {
             const uttr = new SpeechSynthesisUtterance(text);
-            uttr.lang = lang;
-            uttr.rate = 1.1;
+            uttr.lang = lang; uttr.rate = 1.1;
             window.speechSynthesis.speak(uttr);
         }
 
@@ -143,10 +141,7 @@
             const nickname = document.getElementById('nick').value.trim();
             const roomCode = document.getElementById('room').value.trim();
             if(!nickname || !roomCode) return alert("닉네임과 방 코드를 입력하세요.");
-            
-            // 브라우저 소리 재생 허용 유도
             sfx.start.play().then(() => sfx.start.pause());
-            
             currentRoom = roomCode;
             socket.emit('joinRoom', { roomCode, nickname });
             document.getElementById('lobby').style.display = 'none';
@@ -166,15 +161,19 @@
         }
 
         socket.on('roomUpdate', (room) => {
-            // 게임 시작 사운드
             if (lastGameState === 'waiting' && room.gameState === 'playing') {
-                sfx.start.play();
-                speak("게임이 시작되었습니다.");
+                sfx.start.play(); speak("게임이 시작되었습니다.");
             }
-
-            // 쇼다운 음성 (한 번만 실행되도록 상태 체크 필요 시 추가 가능)
             if (lastGameState === 'playing' && room.gameState === 'showdown') {
                 speak("Showdown", "en-US");
+            }
+            // 게임이 강제 초기화되었을 때 처리
+            if (lastGameState !== 'waiting' && room.gameState === 'waiting' && room.statusMsg.includes("이탈")) {
+                myCards = []; communityCards = [];
+                document.getElementById('myCards').innerHTML = '';
+                document.getElementById('communityCards').innerHTML = '';
+                document.getElementById('handRank').innerText = '';
+                speak("플레이어가 나가서 게임이 중단되었습니다.");
             }
 
             document.getElementById('gameStatusMsg').innerText = room.statusMsg;
@@ -197,15 +196,12 @@
             room.players.forEach((p, idx) => {
                 const isTurn = (room.gameState === 'playing' && room.currentTurn === idx) || (room.gameState === 'showdown' && room.showdownTurn === idx);
                 
-                // 액션 감지 및 음성/효과음 (마지막 액션이 변경되었을 때만 실행)
                 const lastPlayerState = (window.prevPlayers || [])[idx];
-                if (lastPlayerState && lastPlayerState.lastAction !== p.lastAction && p.lastAction !== '') {
+                if (lastPlayerState && lastPlayerState.lastAction !== p.lastAction && p.lastAction !== '' && p.lastAction !== '관전 중') {
                     if (p.lastAction.includes('RAISE') || p.lastAction === 'CALL') {
                         sfx.chip.currentTime = 0; sfx.chip.play();
                     }
                     speak(`${p.nickname} ${p.lastAction}`);
-                    
-                    // 쇼다운 시 족보 읽어주기
                     if (p.lastAction === 'SHOW' && p.handDesc) {
                         setTimeout(() => speak(translateHand(p.handDesc)), 800);
                     }
@@ -217,6 +213,8 @@
                     p.cards.forEach(c => cardsHtml += `<img src="${getCardImg(c)}" class="mini-card">`);
                 } else if (!p.folded && room.gameState !== 'waiting') {
                     cardsHtml = '<div style="font-size:10px;">🎴 패 소지중</div>';
+                } else if (p.lastAction === '관전 중') {
+                    cardsHtml = '<div style="font-size:10px; color:#aaa;">(관전 중)</div>';
                 }
 
                 let profitHtml = p.profit !== 0 ? `<div class="${p.profit > 0 ? 'profit-plus' : 'profit-minus'}">${p.profit > 0 ? '+' : ''}${p.profit.toLocaleString()}</div>` : `<div style="color:#777;">(판 손익: 0)</div>`;
@@ -240,7 +238,7 @@
                 document.getElementById('callVal').innerText = diff > 0 ? `(${diff})` : '';
                 document.getElementById('checkBtn').className = (diff > 0) ? 'disabled' : 'check';
                 document.getElementById('callBtn').className = (diff === 0) ? 'disabled' : 'call';
-                solveHand(me);
+                if (!me.folded) solveHand(me);
             }
 
             window.prevPlayers = JSON.parse(JSON.stringify(room.players));
@@ -249,8 +247,7 @@
 
         socket.on('communityUpdate', (cards) => {
             if (cards.length > communityCards.length) {
-                sfx.card.currentTime = 0;
-                sfx.card.play();
+                sfx.card.currentTime = 0; sfx.card.play();
             }
             communityCards = cards;
             const div = document.getElementById('communityCards');
@@ -258,7 +255,6 @@
             cards.forEach(c => div.innerHTML += `<img src="${getCardImg(c)}" class="card-img" style="transform: rotateY(180deg); animation: flip 0.5s forwards;">`);
         });
 
-        // 애니메이션용 CSS 추가
         const style = document.createElement('style');
         style.innerHTML = `@keyframes flip { from { transform: rotateY(0deg); } to { transform: rotateY(360deg); } }`;
         document.head.appendChild(style);

@@ -26,6 +26,7 @@ function createDeck() {
 
 io.on('connection', (socket) => {
     socket.on('joinRoom', ({ roomCode, nickname }) => {
+        if (!roomCode || !nickname) return;
         socket.join(roomCode);
         if (!rooms[roomCode]) {
             rooms[roomCode] = {
@@ -35,16 +36,26 @@ io.on('connection', (socket) => {
             };
         }
         const room = rooms[roomCode];
+        
+        // 중간에 들어온 플레이어 처리: 게임 중이면 folded 상태로 추가
+        const isGameInProgress = (room.gameState === 'playing' || room.gameState === 'showdown');
+        
         room.players.push({
             id: socket.id, nickname, chips: 10000, roundBet: 0, totalBet: 0,
-            cards: [], folded: false, lastAction: '', isReady: false, showCards: false, profit: 0, handDesc: ''
+            cards: [], folded: isGameInProgress, lastAction: isGameInProgress ? '관전 중' : '', 
+            isReady: false, showCards: false, profit: 0, handDesc: ''
         });
+        
+        if (isGameInProgress) {
+            room.statusMsg = `새로운 플레이어(${nickname})가 입장했습니다. 다음 판부터 참여합니다.`;
+        }
+        
         io.to(roomCode).emit('roomUpdate', room);
     });
 
     socket.on('toggleReady', (roomCode) => {
         const room = rooms[roomCode];
-        if (!room || room.gameState === 'playing') return;
+        if (!room || room.gameState !== 'waiting') return;
         const player = room.players.find(p => p.id === socket.id);
         if (player) player.isReady = !player.isReady;
 
@@ -95,7 +106,7 @@ io.on('connection', (socket) => {
             const pay = total - player.roundBet;
             player.chips -= pay; player.roundBet = total; player.totalBet += pay; room.pot += pay;
             room.currentMaxBet = total;
-            player.lastAction = `RAISE ${total.toLocaleString()}`;
+            player.lastAction = `RAISE`;
         } else if (type === 'fold') {
             player.folded = true;
             player.lastAction = 'FOLD';
@@ -180,8 +191,6 @@ io.on('connection', (socket) => {
             player.showCards = true;
             const hand = Solver.solve([...player.cards, ...room.communityCards]);
             player.handDesc = hand.descr;
-        } else {
-            player.handDesc = ''; 
         }
 
         checkNextShowdown(room, roomCode);
@@ -195,7 +204,7 @@ io.on('connection', (socket) => {
         
         winners.forEach(w => {
             const p = room.players.find(pl => pl.id === w.id);
-            p.chips += prize;
+            if (p) p.chips += prize;
         });
 
         room.players.forEach(p => {
@@ -241,9 +250,17 @@ io.on('connection', (socket) => {
             const room = rooms[code];
             const idx = room.players.findIndex(p => p.id === socketId);
             if (idx !== -1) {
+                const leaver = room.players[idx];
                 room.players.splice(idx, 1);
-                if (room.players.length === 0) delete rooms[code];
-                else io.to(code).emit('roomUpdate', room);
+                
+                // 플레이어가 나갔을 때 게임 진행 중이면 강제 종료 및 초기화
+                if (room.gameState === 'playing' || room.gameState === 'showdown') {
+                    endGame(code, `플레이어(${leaver.nickname}) 이탈로 인해 게임이 초기화되었습니다.`);
+                } else if (room.players.length === 0) {
+                    delete rooms[code];
+                } else {
+                    io.to(code).emit('roomUpdate', room);
+                }
             }
         }
     };
