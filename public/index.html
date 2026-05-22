@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>홀덤 베팅 버전</title>
+    <style>
+        body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; margin: 0; }
+        .card { display: inline-block; background: white; color: black; padding: 10px; margin: 5px; border-radius: 5px; font-weight: bold; width: 40px; }
+        .red { color: red; }
+        .btn-group { margin: 20px; }
+        button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+        .call { background: #007bff; color: white; }
+        .raise { background: #28a745; color: white; }
+        .fold { background: #dc3545; color: white; }
+        .active-turn { border: 3px solid yellow; background: rgba(255,255,0,0.2); }
+        .pot-area { font-size: 24px; color: gold; margin: 20px; }
+    </style>
+</head>
+<body>
+    <div id="lobby">
+        <input type="text" id="nick" placeholder="닉네임">
+        <input type="text" id="room" placeholder="방코드">
+        <button onclick="join()">입장</button>
+    </div>
+
+    <div id="game" style="display:none;">
+        <div class="pot-area">💰 POT: <span id="potAmount">0</span></div>
+        <div id="community"></div>
+        <hr>
+        <div id="myCards"></div>
+        <div class="btn-group">
+            <button class="call" onclick="sendAction('call')">콜 (1000)</button>
+            <button class="raise" onclick="sendAction('raise', 2000)">레이즈 (2000)</button>
+            <button class="fold" onclick="sendAction('fold')">다이</button>
+        </div>
+        <button onclick="socket.emit('dealCommunity', currentRoom)">카드 깔기</button>
+        <button onclick="socket.emit('startGame', currentRoom)" style="background:#666;">새 게임</button>
+        <div id="players"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let currentRoom = '';
+
+        function join() {
+            const nickname = document.getElementById('nick').value;
+            currentRoom = document.getElementById('room').value;
+            socket.emit('joinRoom', { roomCode: currentRoom, nickname });
+            document.getElementById('lobby').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+        }
+
+        function sendAction(type, amount = 0) {
+            socket.emit('action', { roomCode: currentRoom, type, amount });
+        }
+
+        socket.on('roomUpdate', (room) => {
+            document.getElementById('potAmount').innerText = room.pot;
+            const pDiv = document.getElementById('players');
+            pDiv.innerHTML = '<h4>플레이어</h4>';
+            room.players.forEach((p, idx) => {
+                const isTurn = room.currentTurn === idx ? 'active-turn' : '';
+                pDiv.innerHTML += `<div class="player-slot ${isTurn}">${p.nickname}: 💰${p.chips} ${p.folded ? '(죽음)' : ''}</div>`;
+            });
+        });
+
+        socket.on('dealPrivateCards', (cards) => {
+            const div = document.getElementById('myCards');
+            div.innerHTML = '<h4>내 카드</h4>';
+            cards.forEach(c => {
+                const isRed = (c.suit === '♥' || c.suit === '♦') ? 'red' : '';
+                div.innerHTML += `<div class="card ${isRed}">${c.value}${c.suit}</div>`;
+            });
+        });
+
+        socket.on('communityUpdate', (cards) => {
+            const div = document.getElementById('community');
+            div.innerHTML = '<h4>커뮤니티 카드</h4>';
+            cards.forEach(c => {
+                const isRed = (c.suit === '♥' || c.suit === '♦') ? 'red' : '';
+                div.innerHTML += `<div class="card ${isRed}">${c.value}${c.suit}</div>`;
+            });
+        });
+    </script>
+</body>
+</html>
