@@ -30,7 +30,7 @@ io.on('connection', (socket) => {
         if (!rooms[roomCode]) {
             rooms[roomCode] = {
                 players: [], deck: [], communityCards: [], pot: 0,
-                currentMaxBet: 0, currentTurn: 0, gameState: 'waiting'
+                currentMaxBet: 0, currentTurn: 0, gameState: 'waiting', actionCount: 0
             };
         }
         const room = rooms[roomCode];
@@ -44,14 +44,11 @@ io.on('connection', (socket) => {
     socket.on('toggleReady', (roomCode) => {
         const room = rooms[roomCode];
         if (!room || room.gameState === 'playing') return;
-
         const player = room.players.find(p => p.id === socket.id);
         if (player) player.isReady = !player.isReady;
 
         const total = room.players.length;
         const readyCount = room.players.filter(p => p.isReady).length;
-
-        // 모든 참가자가 준비되고 최소 2명일 때 자동 시작
         if (total >= 2 && total === readyCount) {
             startNewGame(roomCode);
         } else {
@@ -66,9 +63,8 @@ io.on('connection', (socket) => {
         room.communityCards = [];
         room.pot = 0;
         room.currentMaxBet = 0;
-        
-        // 순서는 랜덤하게 또는 첫 번째 플레이어부터
         room.currentTurn = 0;
+        room.actionCount = 0; // 새 게임 시작 시 액션 카운트 초기화
         
         room.players.forEach(p => {
             p.roundBet = 0;
@@ -87,6 +83,7 @@ io.on('connection', (socket) => {
         const player = room.players[room.currentTurn];
         if (!player || player.id !== socket.id) return;
 
+        room.actionCount++; // 누군가 액션을 할 때마다 카운트 업
         player.lastAction = type.toUpperCase();
 
         if (type === 'call') {
@@ -103,62 +100,14 @@ io.on('connection', (socket) => {
 
         const active = room.players.filter(p => !p.folded);
         if (active.length === 1) {
-            // 폴드 승리
             active[0].chips += room.pot;
             endGame(roomCode, `${active[0].nickname}님 폴드 승리!`);
-        } else if (active.every(p => p.roundBet === room.currentMaxBet)) {
-            // 라운드 종료
+        } 
+        // 라운드 종료 조건: 모든 생존자 베팅액 동일 && 모두가 최소 한 번은 차례를 가짐
+        else if (active.every(p => p.roundBet === room.currentMaxBet) && room.actionCount >= active.length) {
             if (room.communityCards.length < 5) {
                 const draw = room.communityCards.length === 0 ? 3 : 1;
                 for(let i=0; i<draw; i++) room.communityCards.push(room.deck.pop());
                 room.currentMaxBet = 0;
-                room.players.forEach(p => p.roundBet = 0);
-                // 첫 번째 생존 플레이어로 턴 리셋
-                room.currentTurn = room.players.findIndex(p => !p.folded);
-                io.to(roomCode).emit('communityUpdate', room.communityCards);
-            } else {
-                // 리버 종료
-                endGame(roomCode, '게임이 종료되었습니다. (쇼다운 생략)');
-            }
-        } else {
-            // 다음 턴
-            do {
-                room.currentTurn = (room.currentTurn + 1) % room.players.length;
-            } while (room.players[room.currentTurn].folded);
-        }
-        io.to(roomCode).emit('roomUpdate', room);
-    });
-
-    function endGame(roomCode, msg) {
-        const room = rooms[roomCode];
-        room.gameState = 'waiting';
-        room.players.forEach(p => {
-            p.isReady = false;
-            p.cards = [];
-        });
-        io.to(roomCode).emit('alert', msg);
-    }
-
-    socket.on('sendMessage', ({ roomCode, msg }) => {
-        const room = rooms[roomCode];
-        const player = room.players.find(p => p.id === socket.id);
-        if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
-    });
-
-    const leave = (socketId) => {
-        for (const code in rooms) {
-            const room = rooms[code];
-            const idx = room.players.findIndex(p => p.id === socketId);
-            if (idx !== -1) {
-                room.players.splice(idx, 1);
-                if (room.players.length === 0) delete rooms[code];
-                else io.to(code).emit('roomUpdate', room);
-            }
-        }
-    };
-    socket.on('leaveRoom', () => leave(socket.id));
-    socket.on('disconnect', () => leave(socket.id));
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on ${PORT}`));
+                room.actionCount = 0; // 라운드 변경 시 카운트 리셋
+                room.
