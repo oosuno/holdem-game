@@ -9,19 +9,17 @@
         #lobby { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #1a1a1a; }
         #game { flex: 1; display: flex; flex-direction: column; padding: 10px; overflow-y: auto; align-items: center; }
         
-        /* 알림 메시지 영역 */
         #gameStatusMsg { background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 20px; color: #ffcc00; font-weight: bold; margin-bottom: 10px; border: 1px solid #ffcc00; }
 
-        /* 칩 시각화 */
-        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
-        .chip-stack { width: 40px; height: 40px; background: radial-gradient(circle, #ff0000 30%, #990000 100%); border-radius: 50%; border: 3px dashed white; display: flex; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 4px 0 #660000; }
+        /* POT 문구 영역 수정 */
+        .pot-area { display: flex; align-items: center; gap: 10px; margin: 10px 0; background: rgba(0,0,0,0.4); padding: 10px 25px; border-radius: 50px; border: 2px solid #ffcc00; }
+        .pot-label { font-size: 24px; color: #ffffff; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
         .pot-amount { font-size: 32px; color: #ffcc00; font-weight: bold; }
 
         .card-container { display: flex; justify-content: center; gap: 5px; margin: 10px 0; min-height: 95px; }
         .card-img { width: 65px; height: 90px; border-radius: 5px; box-shadow: 2px 2px 8px rgba(0,0,0,0.6); }
         .hand-rank { color: #00ffcc; font-size: 20px; font-weight: bold; margin-bottom: 10px; }
         
-        /* 베팅 패널 */
         .bet-panel { background: rgba(0,0,0,0.6); padding: 15px; border-radius: 15px; width: 90%; max-width: 500px; margin-bottom: 10px; }
         .input-bet { width: 60%; padding: 10px; border-radius: 5px; border: none; font-size: 16px; margin-right: 5px; }
         .btn-group { display: flex; justify-content: center; gap: 5px; margin-top: 10px; }
@@ -30,7 +28,6 @@
         .show { background: #8e44ad; } .muck { background: #7f8c8d; }
         .disabled { opacity: 0.3; filter: grayscale(1); pointer-events: none; }
 
-        /* 플레이어 리스트 */
         #players { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; width: 100%; }
         .player-slot { background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); text-align: center; }
         .active-turn { border: 2px solid #ffcc00; background: rgba(255,204,0,0.1); }
@@ -39,7 +36,6 @@
         .chat-area { height: 120px; width: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; }
         #chatBox { flex: 1; overflow-y: auto; padding: 8px; font-size: 13px; text-align: left; }
 
-        /* 손익 텍스트 스타일 */
         .profit-plus { color: #00ff00; font-weight: bold; }
         .profit-minus { color: #ff4444; font-weight: bold; }
     </style>
@@ -56,7 +52,7 @@
         <div id="gameStatusMsg">상대방을 기다리고 있습니다...</div>
 
         <div class="pot-area">
-            <div class="chip-stack">C</div>
+            <div class="pot-label">POT</div>
             <div class="pot-amount">💰 <span id="potAmount">0</span></div>
         </div>
         
@@ -151,9 +147,7 @@
         }
 
         socket.on('roomUpdate', (room) => {
-            // 상단 메시지 업데이트 (alert 대체)
             document.getElementById('gameStatusMsg').innerText = room.statusMsg;
-
             document.getElementById('potAmount').innerText = room.pot.toLocaleString();
             const pDiv = document.getElementById('players');
             pDiv.innerHTML = '';
@@ -182,14 +176,12 @@
                     cardsHtml = '<div style="font-size:10px;">🎴 패 소지중</div>';
                 }
 
-                // 손익 텍스트 생성 (0일 때는 표시 안 함)
                 let profitHtml = '';
                 if (p.profit !== 0) {
                     const sign = p.profit > 0 ? '+' : '';
                     const colorClass = p.profit > 0 ? 'profit-plus' : 'profit-minus';
                     profitHtml = `<div class="${colorClass}">${sign}${p.profit.toLocaleString()}</div>`;
                 } else {
-                    // 게임 중이거나 대기 중일 때는 0 대신 "대기" 혹은 "-" 표시
                     profitHtml = `<div style="color:#777;">(판 손익: 0)</div>`;
                 }
 
@@ -233,8 +225,6 @@
             const d = document.createElement('div'); d.textContent = msg;
             b.appendChild(d); b.scrollTop = b.scrollHeight;
         });
-
-        // alert 이벤트 수신은 유지하되, 브라우저 팝업 대신 로그나 상단 메시지로 대체 가능 (현재는 roomUpdate에서 처리)
         socket.on('alert', (msg) => { console.log("Game Alert:", msg); });
     </script>
 </body>

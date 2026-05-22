@@ -31,12 +31,12 @@ io.on('connection', (socket) => {
             rooms[roomCode] = {
                 players: [], deck: [], communityCards: [], pot: 0,
                 currentMaxBet: 0, currentTurn: 0, gameState: 'waiting', actionCount: 0,
-                statusMsg: '플레이어를 기다리는 중...' // 게임 메시지 상태 추가
+                statusMsg: '플레이어를 기다리는 중...'
             };
         }
         const room = rooms[roomCode];
         room.players.push({
-            id: socket.id, nickname, chips: 10000, roundBet: 0, totalBet: 0, // 판별 손익 계산용 totalBet 추가
+            id: socket.id, nickname, chips: 10000, roundBet: 0, totalBet: 0,
             cards: [], folded: false, lastAction: '', isReady: false, showCards: false, profit: 0
         });
         io.to(roomCode).emit('roomUpdate', room);
@@ -70,8 +70,8 @@ io.on('connection', (socket) => {
         
         room.players.forEach(p => {
             p.roundBet = 0;
-            p.totalBet = 0; // 초기화
-            p.profit = 0; // 손익 초기화
+            p.totalBet = 0;
+            p.profit = 0;
             p.folded = false;
             p.lastAction = '';
             p.showCards = false;
@@ -89,7 +89,7 @@ io.on('connection', (socket) => {
         if (!player || player.id !== socket.id) return;
 
         room.actionCount++;
-        
+
         if (type === 'call') {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; player.totalBet += diff; room.pot += diff;
@@ -118,7 +118,7 @@ io.on('connection', (socket) => {
                 for(let i=0; i<draw; i++) room.communityCards.push(room.deck.pop());
                 room.currentMaxBet = 0;
                 room.actionCount = 0;
-                room.players.forEach(p => { p.roundBet = 0; }); // lastAction은 유지하여 흐름 표시
+                room.players.forEach(p => { p.roundBet = 0; });
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
@@ -177,31 +177,27 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (!room) return;
         
-        // 최종 손익 계산 (이번 판의 결과 반영)
-        room.players.forEach(p => {
-            // 이번 판에 번 돈 = 현재 칩 - (판 시작 전 칩) 을 구하기 위해 totalBet 활용
-            // 또는 간단히: winner인 경우 획득액 - 배팅액, 패자인 경우 -배팅액
-            // 여기서는 최종 결과 시점의 차액을 표시
-            p.profit = (p.chips - (p.chips + p.totalBet - (room.pot/room.players.filter(pl=>room.players.indexOf(pl)===-1).length || 0))); 
-            // 더 직관적인 계산: 
-            // 획득한 상금이 있다면 그 상금 - 자신이 낸 돈, 없다면 -자신이 낸 돈
-        });
+        const activePlayers = room.players.filter(p => !p.folded);
+        let winnersIds = [];
+        let prize = 0;
 
-        // 실제 손익 재계산 로직
-        const winnersIds = solveWinners(room.players.filter(p=>!p.folded), room.communityCards).map(w=>w.id);
-        const prize = Math.floor(room.pot / (winnersIds.length || 1));
-        
+        if (activePlayers.length > 0) {
+            const winners = solveWinners(activePlayers, room.communityCards);
+            winnersIds = winners.map(w => w.id);
+            prize = Math.floor(room.pot / (winnersIds.length || 1));
+        }
+
         room.players.forEach(p => {
             if (winnersIds.includes(p.id)) {
                 p.profit = prize - p.totalBet;
             } else {
                 p.profit = -p.totalBet;
             }
+            p.isReady = false;
         });
 
         room.gameState = 'waiting';
-        room.statusMsg = msg; // 팝업 대신 메시지로 저장
-        room.players.forEach(p => { p.isReady = false; });
+        room.statusMsg = msg;
         io.to(roomCode).emit('roomUpdate', room);
     }
 
