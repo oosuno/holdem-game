@@ -26,7 +26,6 @@ function createDeck() {
 
 io.on('connection', (socket) => {
     socket.on('joinRoom', ({ roomCode, nickname }) => {
-        if (!roomCode || !nickname) return;
         socket.join(roomCode);
         if (!rooms[roomCode]) {
             rooms[roomCode] = {
@@ -96,7 +95,7 @@ io.on('connection', (socket) => {
             const pay = total - player.roundBet;
             player.chips -= pay; player.roundBet = total; player.totalBet += pay; room.pot += pay;
             room.currentMaxBet = total;
-            player.lastAction = `RAISE`;
+            player.lastAction = `RAISE ${total.toLocaleString()}`;
         } else if (type === 'fold') {
             player.folded = true;
             player.lastAction = 'FOLD';
@@ -181,6 +180,8 @@ io.on('connection', (socket) => {
             player.showCards = true;
             const hand = Solver.solve([...player.cards, ...room.communityCards]);
             player.handDesc = hand.descr;
+        } else {
+            player.handDesc = ''; 
         }
 
         checkNextShowdown(room, roomCode);
@@ -194,7 +195,7 @@ io.on('connection', (socket) => {
         
         winners.forEach(w => {
             const p = room.players.find(pl => pl.id === w.id);
-            if (p) p.chips += prize;
+            p.chips += prize;
         });
 
         room.players.forEach(p => {
