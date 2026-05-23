@@ -24,29 +24,21 @@ function createDeck() {
     return deck;
 }
 
-// [수정] 정확한 승자 판별을 위해 rank와 타이브레이커를 포함한 비교 로직 사용
+// 정확한 승자 판별을 위해 Solver.winners를 사용하는 로직
 function solveWinners(players, community) {
-    let bestHand = null;
-    let winners = [];
-
-    players.forEach(p => {
-        const hand = Solver.solve([...p.cards, ...community]);
-        
-        if (!bestHand) {
-            bestHand = hand;
-            winners = [p];
-        } else {
-            // hand.compare(bestHand) -> 1: hand가 우세, -1: bestHand가 우세, 0: 무승부
-            const result = hand.compare(bestHand);
-            if (result > 0) {
-                bestHand = hand;
-                winners = [p];
-            } else if (result === 0) {
-                winners.push(p);
-            }
-        }
+    const handsWithPlayer = players.map(p => ({
+        player: p,
+        hand: Solver.solve([...p.cards, ...community])
+    }));
+    
+    // 라이브러리가 제공하는 가장 높은 패를 가진 승자들 반환
+    const winningHands = Solver.winners(handsWithPlayer.map(hp => hp.hand));
+    
+    return players.filter(p => {
+        const pHand = Solver.solve([...p.cards, ...community]);
+        // 승리한 핸드와 같은 족보 등급과 값을 가지는지 비교
+        return winningHands.some(wh => wh.compare(pHand) === 0);
     });
-    return winners;
 }
 
 io.on('connection', (socket) => {
@@ -92,7 +84,6 @@ io.on('connection', (socket) => {
         room.currentMaxBet = 0;
         room.currentTurn = 0;
         room.actionCount = 0;
-        
         room.players.forEach(p => {
             p.roundBet = 0; p.totalBet = 0; p.profit = 0;
             p.folded = false; p.lastAction = ''; p.showCards = false; p.handDesc = '';
@@ -110,7 +101,6 @@ io.on('connection', (socket) => {
         if (!player || player.id !== socket.id) return;
 
         room.actionCount++;
-
         if (type === 'call') {
             const diff = room.currentMaxBet - player.roundBet;
             player.chips -= diff; player.roundBet += diff; player.totalBet += diff; room.pot += diff;
@@ -136,8 +126,7 @@ io.on('connection', (socket) => {
             if (room.communityCards.length < 5) {
                 const draw = room.communityCards.length === 0 ? 3 : 1;
                 for(let i=0; i<draw; i++) room.communityCards.push(room.deck.pop());
-                room.currentMaxBet = 0;
-                room.actionCount = 0;
+                room.currentMaxBet = 0; room.actionCount = 0;
                 room.players.forEach(p => { p.roundBet = 0; p.lastAction = ''; });
                 room.currentTurn = room.players.findIndex(p => !p.folded);
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
@@ -148,14 +137,11 @@ io.on('connection', (socket) => {
                 const firstPlayer = room.players[room.showdownTurn];
                 firstPlayer.showCards = true;
                 firstPlayer.lastAction = 'SHOW';
-                const hand = Solver.solve([...firstPlayer.cards, ...room.communityCards]);
-                firstPlayer.handDesc = hand.descr;
+                firstPlayer.handDesc = Solver.solve([...firstPlayer.cards, ...room.communityCards]).descr;
                 checkNextShowdown(room, roomCode);
             }
         } else {
-            do {
-                room.currentTurn = (room.currentTurn + 1) % room.players.length;
-            } while (room.players[room.currentTurn].folded);
+            do { room.currentTurn = (room.currentTurn + 1) % room.players.length; } while (room.players[room.currentTurn].folded);
         }
         io.to(roomCode).emit('roomUpdate', room);
     });
@@ -165,46 +151,34 @@ io.on('connection', (socket) => {
         if (!room || room.gameState !== 'showdown') return;
         const player = room.players[room.showdownTurn];
         if (!player || player.id !== socket.id) return;
-
         player.lastAction = action.toUpperCase();
         if (action === 'show') {
             player.showCards = true;
-            const hand = Solver.solve([...player.cards, ...room.communityCards]);
-            player.handDesc = hand.descr;
-        } else {
-            player.handDesc = ''; 
-        }
-
+            player.handDesc = Solver.solve([...player.cards, ...room.communityCards]).descr;
+        } else { player.handDesc = ''; }
         checkNextShowdown(room, roomCode);
         io.to(roomCode).emit('roomUpdate', room);
     });
 
     function checkNextShowdown(room, roomCode) {
-        let foundNext = false;
         let bestHand = null;
-
         room.players.filter(p => p.showCards).forEach(p => {
-            const hand = Solver.solve([...p.cards, ...room.communityCards]);
-            if (!bestHand || hand.compare(bestHand) > 0) bestHand = hand;
+            const h = Solver.solve([...p.cards, ...room.communityCards]);
+            if (!bestHand || h.compare(bestHand) > 0) bestHand = h;
         });
 
+        let foundNext = false;
         for (let i = 1; i < room.players.length; i++) {
             let idx = (room.showdownTurn + i) % room.players.length;
             let p = room.players[idx];
-            
             if (!p.folded && p.lastAction !== 'SHOW' && p.lastAction !== 'MUCK') {
                 room.showdownTurn = idx;
                 const myHand = Solver.solve([...p.cards, ...room.communityCards]);
-                
                 if (bestHand && myHand.compare(bestHand) > 0) {
-                    p.showCards = true;
-                    p.lastAction = 'SHOW';
-                    p.handDesc = myHand.descr; 
-                    checkNextShowdown(room, roomCode);
-                    return;
+                    p.showCards = true; p.lastAction = 'SHOW'; p.handDesc = myHand.descr;
+                    checkNextShowdown(room, roomCode); return;
                 }
-                foundNext = true;
-                break;
+                foundNext = true; break;
             }
         }
         if (!foundNext) finishGame(room, roomCode);
@@ -219,7 +193,7 @@ io.on('connection', (socket) => {
             const isWinner = winners.some(w => w.id === p.id);
             p.profit = isWinner ? (prize - p.totalBet) : -p.totalBet;
         });
-        endGame(roomCode, `결과: ${winners.map(w => w.nickname).join(', ')} 승리!`);
+        endGame(roomCode, `승자: ${winners.map(w => w.nickname).join(', ')}`);
     }
 
     function endGame(roomCode, msg) {
@@ -233,8 +207,8 @@ io.on('connection', (socket) => {
 
     socket.on('sendMessage', ({ roomCode, msg }) => {
         const room = rooms[roomCode];
-        const player = room.players?.find(p => p.id === socket.id);
-        if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
+        const p = room.players?.find(p => p.id === socket.id);
+        if (p) io.to(roomCode).emit('chatUpdate', `${p.nickname}: ${msg}`);
     });
 
     const leave = (socketId) => {
