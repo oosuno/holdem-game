@@ -12,6 +12,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let rooms = {};
 
+// [중요] 카드 값 보정 함수: 10을 T로 변환
+function standardizeCards(cards) {
+    return cards.map(c => {
+        let val = c.slice(0, -1);
+        let suit = c.slice(-1);
+        if (val === '10') val = 'T';
+        return val + suit;
+    });
+}
+
 function createDeck() {
     const suits = ['s', 'h', 'd', 'c'];
     const values = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
@@ -24,19 +34,16 @@ function createDeck() {
     return deck;
 }
 
-// 정확한 승자 판별을 위해 Solver.winners를 사용하는 로직
 function solveWinners(players, community) {
     const handsWithPlayer = players.map(p => ({
         player: p,
-        hand: Solver.solve([...p.cards, ...community])
+        hand: Solver.solve(standardizeCards([...p.cards, ...community]))
     }));
     
-    // 라이브러리가 제공하는 가장 높은 패를 가진 승자들 반환
     const winningHands = Solver.winners(handsWithPlayer.map(hp => hp.hand));
     
     return players.filter(p => {
-        const pHand = Solver.solve([...p.cards, ...community]);
-        // 승리한 핸드와 같은 족보 등급과 값을 가지는지 비교
+        const pHand = Solver.solve(standardizeCards([...p.cards, ...community]));
         return winningHands.some(wh => wh.compare(pHand) === 0);
     });
 }
@@ -64,30 +71,22 @@ io.on('connection', (socket) => {
         if (!room || room.gameState === 'playing') return;
         const player = room.players.find(p => p.id === socket.id);
         if (player) player.isReady = !player.isReady;
-
         const total = room.players.length;
         const readyCount = room.players.filter(p => p.isReady).length;
-        if (total >= 2 && total === readyCount) {
-            startNewGame(roomCode);
-        } else {
-            io.to(roomCode).emit('roomUpdate', room);
-        }
+        if (total >= 2 && total === readyCount) startNewGame(roomCode);
+        else io.to(roomCode).emit('roomUpdate', room);
     });
 
     function startNewGame(roomCode) {
         const room = rooms[roomCode];
         room.gameState = 'playing';
-        room.statusMsg = '게임이 시작되었습니다.';
         room.deck = createDeck();
         room.communityCards = [];
         room.pot = 0;
-        room.currentMaxBet = 0;
-        room.currentTurn = 0;
-        room.actionCount = 0;
         room.players.forEach(p => {
+            p.cards = [room.deck.pop(), room.deck.pop()];
             p.roundBet = 0; p.totalBet = 0; p.profit = 0;
             p.folded = false; p.lastAction = ''; p.showCards = false; p.handDesc = '';
-            p.cards = [room.deck.pop(), room.deck.pop()];
             io.to(p.id).emit('dealPrivateCards', p.cards);
         });
         io.to(roomCode).emit('communityUpdate', []);
@@ -111,17 +110,15 @@ io.on('connection', (socket) => {
             room.currentMaxBet = amount;
             player.lastAction = `RAISE ${amount}`;
         } else if (type === 'fold') {
-            player.folded = true;
-            player.lastAction = 'FOLD';
+            player.folded = true; player.lastAction = 'FOLD';
         } else if (type === 'check') {
             player.lastAction = 'CHECK';
         }
 
         const active = room.players.filter(p => !p.folded);
         if (active.length === 1) {
-            const winner = active[0];
-            winner.chips += room.pot;
-            endGame(roomCode, `${winner.nickname}님 폴드 승리!`);
+            const winner = active[0]; winner.chips += room.pot;
+            endGame(roomCode, `${winner.nickname}님 승리!`);
         } else if (active.every(p => p.roundBet === room.currentMaxBet) && room.actionCount >= active.length) {
             if (room.communityCards.length < 5) {
                 const draw = room.communityCards.length === 0 ? 3 : 1;
@@ -132,12 +129,10 @@ io.on('connection', (socket) => {
                 io.to(roomCode).emit('communityUpdate', room.communityCards);
             } else {
                 room.gameState = 'showdown';
-                room.statusMsg = '쇼다운이 진행됩니다.';
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
-                const firstPlayer = room.players[room.showdownTurn];
-                firstPlayer.showCards = true;
-                firstPlayer.lastAction = 'SHOW';
-                firstPlayer.handDesc = Solver.solve([...firstPlayer.cards, ...room.communityCards]).descr;
+                const first = room.players[room.showdownTurn];
+                first.showCards = true; first.lastAction = 'SHOW';
+                first.handDesc = Solver.solve(standardizeCards([...first.cards, ...room.communityCards])).descr;
                 checkNextShowdown(room, roomCode);
             }
         } else {
@@ -154,8 +149,8 @@ io.on('connection', (socket) => {
         player.lastAction = action.toUpperCase();
         if (action === 'show') {
             player.showCards = true;
-            player.handDesc = Solver.solve([...player.cards, ...room.communityCards]).descr;
-        } else { player.handDesc = ''; }
+            player.handDesc = Solver.solve(standardizeCards([...player.cards, ...room.communityCards])).descr;
+        } else player.handDesc = '';
         checkNextShowdown(room, roomCode);
         io.to(roomCode).emit('roomUpdate', room);
     });
@@ -163,17 +158,16 @@ io.on('connection', (socket) => {
     function checkNextShowdown(room, roomCode) {
         let bestHand = null;
         room.players.filter(p => p.showCards).forEach(p => {
-            const h = Solver.solve([...p.cards, ...room.communityCards]);
+            const h = Solver.solve(standardizeCards([...p.cards, ...room.communityCards]));
             if (!bestHand || h.compare(bestHand) > 0) bestHand = h;
         });
-
         let foundNext = false;
         for (let i = 1; i < room.players.length; i++) {
             let idx = (room.showdownTurn + i) % room.players.length;
             let p = room.players[idx];
             if (!p.folded && p.lastAction !== 'SHOW' && p.lastAction !== 'MUCK') {
                 room.showdownTurn = idx;
-                const myHand = Solver.solve([...p.cards, ...room.communityCards]);
+                const myHand = Solver.solve(standardizeCards([...p.cards, ...room.communityCards]));
                 if (bestHand && myHand.compare(bestHand) > 0) {
                     p.showCards = true; p.lastAction = 'SHOW'; p.handDesc = myHand.descr;
                     checkNextShowdown(room, roomCode); return;
@@ -189,27 +183,15 @@ io.on('connection', (socket) => {
         const winners = solveWinners(active, room.communityCards);
         const prize = Math.floor(room.pot / winners.length);
         winners.forEach(w => { const p = room.players.find(pl => pl.id === w.id); p.chips += prize; });
-        room.players.forEach(p => {
-            const isWinner = winners.some(w => w.id === p.id);
-            p.profit = isWinner ? (prize - p.totalBet) : -p.totalBet;
-        });
         endGame(roomCode, `승자: ${winners.map(w => w.nickname).join(', ')}`);
     }
 
     function endGame(roomCode, msg) {
         const room = rooms[roomCode];
-        if (!room) return;
-        room.gameState = 'waiting';
-        room.statusMsg = msg;
+        room.gameState = 'waiting'; room.statusMsg = msg;
         room.players.forEach(p => { p.isReady = false; });
         io.to(roomCode).emit('roomUpdate', room);
     }
-
-    socket.on('sendMessage', ({ roomCode, msg }) => {
-        const room = rooms[roomCode];
-        const p = room.players?.find(p => p.id === socket.id);
-        if (p) io.to(roomCode).emit('chatUpdate', `${p.nickname}: ${msg}`);
-    });
 
     const leave = (socketId) => {
         for (const code in rooms) {
@@ -222,9 +204,7 @@ io.on('connection', (socket) => {
             }
         }
     };
-    socket.on('leaveRoom', () => leave(socket.id));
     socket.on('disconnect', () => leave(socket.id));
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(process.env.PORT || 3000, () => console.log('Server running...'));
