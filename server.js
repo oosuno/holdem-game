@@ -24,16 +24,29 @@ function createDeck() {
     return deck;
 }
 
+// [수정] 정확한 승자 판별을 위해 rank와 타이브레이커를 포함한 비교 로직 사용
 function solveWinners(players, community) {
-    const handsWithPlayer = players.map(p => ({
-        player: p,
-        hand: Solver.solve([...p.cards, ...community])
-    }));
-    const winningHands = Solver.winners(handsWithPlayer.map(hp => hp.hand));
-    return players.filter(p => {
-        const pHand = Solver.solve([...p.cards, ...community]);
-        return winningHands.some(wh => wh.compare(pHand) === 0);
+    let bestHand = null;
+    let winners = [];
+
+    players.forEach(p => {
+        const hand = Solver.solve([...p.cards, ...community]);
+        
+        if (!bestHand) {
+            bestHand = hand;
+            winners = [p];
+        } else {
+            // hand.compare(bestHand) -> 1: hand가 우세, -1: bestHand가 우세, 0: 무승부
+            const result = hand.compare(bestHand);
+            if (result > 0) {
+                bestHand = hand;
+                winners = [p];
+            } else if (result === 0) {
+                winners.push(p);
+            }
+        }
     });
+    return winners;
 }
 
 io.on('connection', (socket) => {
@@ -132,14 +145,11 @@ io.on('connection', (socket) => {
                 room.gameState = 'showdown';
                 room.statusMsg = '쇼다운이 진행됩니다.';
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
-                
-                // [수정] 첫 번째 사람 자동 오픈
                 const firstPlayer = room.players[room.showdownTurn];
                 firstPlayer.showCards = true;
                 firstPlayer.lastAction = 'SHOW';
                 const hand = Solver.solve([...firstPlayer.cards, ...room.communityCards]);
                 firstPlayer.handDesc = hand.descr;
-                
                 checkNextShowdown(room, roomCode);
             }
         } else {
@@ -171,10 +181,11 @@ io.on('connection', (socket) => {
 
     function checkNextShowdown(room, roomCode) {
         let foundNext = false;
-        let bestRank = 0;
+        let bestHand = null;
+
         room.players.filter(p => p.showCards).forEach(p => {
             const hand = Solver.solve([...p.cards, ...room.communityCards]);
-            if (hand.rank > bestRank) bestRank = hand.rank;
+            if (!bestHand || hand.compare(bestHand) > 0) bestHand = hand;
         });
 
         for (let i = 1; i < room.players.length; i++) {
@@ -185,7 +196,7 @@ io.on('connection', (socket) => {
                 room.showdownTurn = idx;
                 const myHand = Solver.solve([...p.cards, ...room.communityCards]);
                 
-                if (myHand.rank > bestRank) {
+                if (bestHand && myHand.compare(bestHand) > 0) {
                     p.showCards = true;
                     p.lastAction = 'SHOW';
                     p.handDesc = myHand.descr; 
