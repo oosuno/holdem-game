@@ -24,7 +24,6 @@ function createDeck() {
     return deck;
 }
 
-// [수정] 승자 판별 로직: Hand.winners 사용
 function solveWinners(players, community) {
     const handsWithPlayer = players.map(p => ({
         player: p,
@@ -133,7 +132,8 @@ io.on('connection', (socket) => {
                 room.gameState = 'showdown';
                 room.statusMsg = '쇼다운이 진행됩니다.';
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
-                io.to(roomCode).emit('roomUpdate', room);
+                // [수정된 로직 반영을 위해 클라이언트로 상태 전송]
+                io.to(roomCode).emit('showdownStarted', { canMuck: false }); 
             }
         } else {
             do {
@@ -143,10 +143,98 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('roomUpdate', room);
     });
 
-    // (이하 생략 - 이전 로직과 동일)
-    socket.on('disconnect', () => { /* ... leave logic ... */ });
-    
-    // ... 나머지 함수들 (finishGame, endGame, sendMessage 등)은 이전과 동일하게 유지하세요.
+    socket.on('showdownAction', ({ roomCode, action }) => {
+        const room = rooms[roomCode];
+        if (!room || room.gameState !== 'showdown') return;
+        const player = room.players[room.showdownTurn];
+        if (!player || player.id !== socket.id) return;
+
+        player.lastAction = action.toUpperCase();
+        if (action === 'show') {
+            player.showCards = true;
+            const hand = Solver.solve([...player.cards, ...room.communityCards]);
+            player.handDesc = hand.descr;
+        } else {
+            player.handDesc = ''; 
+        }
+
+        checkNextShowdown(room, roomCode);
+        io.to(roomCode).emit('roomUpdate', room);
+    });
+
+    function checkNextShowdown(room, roomCode) {
+        let foundNext = false;
+        let bestRank = 0;
+        room.players.filter(p => p.showCards).forEach(p => {
+            const hand = Solver.solve([...p.cards, ...room.communityCards]);
+            if (hand.rank > bestRank) bestRank = hand.rank;
+        });
+
+        for (let i = 1; i < room.players.length; i++) {
+            let idx = (room.showdownTurn + i) % room.players.length;
+            let p = room.players[idx];
+            
+            if (!p.folded && p.lastAction !== 'SHOW' && p.lastAction !== 'MUCK') {
+                room.showdownTurn = idx;
+                const myHand = Solver.solve([...p.cards, ...room.communityCards]);
+                
+                // 앞선 패보다 높으면 무조건 공개
+                if (myHand.rank > bestRank) {
+                    p.showCards = true;
+                    p.lastAction = 'SHOW';
+                    p.handDesc = myHand.descr; 
+                    checkNextShowdown(room, roomCode);
+                    return;
+                }
+                foundNext = true;
+                // [수정] 두 번째 이후 사람이고, bestRank보다 낮을 때만 MUCK 가능
+                io.to(p.id).emit('canMuck', { canMuck: true });
+                break;
+            }
+        }
+        if (!foundNext) finishGame(room, roomCode);
+    }
+
+    function finishGame(room, roomCode) {
+        const active = room.players.filter(p => !p.folded);
+        const winners = solveWinners(active, room.communityCards);
+        const prize = Math.floor(room.pot / winners.length);
+        winners.forEach(w => { const p = room.players.find(pl => pl.id === w.id); p.chips += prize; });
+        room.players.forEach(p => {
+            const isWinner = winners.some(w => w.id === p.id);
+            p.profit = isWinner ? (prize - p.totalBet) : -p.totalBet;
+        });
+        endGame(roomCode, `결과: ${winners.map(w => w.nickname).join(', ')} 승리!`);
+    }
+
+    function endGame(roomCode, msg) {
+        const room = rooms[roomCode];
+        if (!room) return;
+        room.gameState = 'waiting';
+        room.statusMsg = msg;
+        room.players.forEach(p => { p.isReady = false; });
+        io.to(roomCode).emit('roomUpdate', room);
+    }
+
+    socket.on('sendMessage', ({ roomCode, msg }) => {
+        const room = rooms[roomCode];
+        const player = room.players?.find(p => p.id === socket.id);
+        if (player) io.to(roomCode).emit('chatUpdate', `${player.nickname}: ${msg}`);
+    });
+
+    const leave = (socketId) => {
+        for (const code in rooms) {
+            const room = rooms[code];
+            const idx = room.players.findIndex(p => p.id === socketId);
+            if (idx !== -1) {
+                room.players.splice(idx, 1);
+                if (room.players.length === 0) delete rooms[code];
+                else io.to(code).emit('roomUpdate', room);
+            }
+        }
+    };
+    socket.on('leaveRoom', () => leave(socket.id));
+    socket.on('disconnect', () => leave(socket.id));
 });
 
 const PORT = process.env.PORT || 3000;
