@@ -132,8 +132,15 @@ io.on('connection', (socket) => {
                 room.gameState = 'showdown';
                 room.statusMsg = '쇼다운이 진행됩니다.';
                 room.showdownTurn = room.players.findIndex(p => !p.folded);
-                // [수정된 로직 반영을 위해 클라이언트로 상태 전송]
-                io.to(roomCode).emit('showdownStarted', { canMuck: false }); 
+                
+                // [수정] 첫 번째 사람 자동 오픈
+                const firstPlayer = room.players[room.showdownTurn];
+                firstPlayer.showCards = true;
+                firstPlayer.lastAction = 'SHOW';
+                const hand = Solver.solve([...firstPlayer.cards, ...room.communityCards]);
+                firstPlayer.handDesc = hand.descr;
+                
+                checkNextShowdown(room, roomCode);
             }
         } else {
             do {
@@ -178,7 +185,6 @@ io.on('connection', (socket) => {
                 room.showdownTurn = idx;
                 const myHand = Solver.solve([...p.cards, ...room.communityCards]);
                 
-                // 앞선 패보다 높으면 무조건 공개
                 if (myHand.rank > bestRank) {
                     p.showCards = true;
                     p.lastAction = 'SHOW';
@@ -187,8 +193,6 @@ io.on('connection', (socket) => {
                     return;
                 }
                 foundNext = true;
-                // [수정] 두 번째 이후 사람이고, bestRank보다 낮을 때만 MUCK 가능
-                io.to(p.id).emit('canMuck', { canMuck: true });
                 break;
             }
         }
